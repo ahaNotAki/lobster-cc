@@ -12,7 +12,12 @@ This also enables Claude to send files on demand — if a user asks "send me out
 
 ### Automatic (via Remote Control server)
 
-The Remote Control server automatically generates `.mcp.json` in the working directory on startup. No manual setup needed if you're running the server.
+The Remote Control server automatically generates `.mcp.json` in the working directory on startup. No manual setup needed if you're running the server. The `.mcp.json` includes two MCP servers:
+
+- **`wecom`** — message, image, and file sending tools (this server)
+- **`agent-profile`** — agent self-configuration tools (`get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config`) for tuning output style, model selection, notifications, and custom commands via `.agent-profile.yaml`
+
+Both are registered automatically so all Claude processes (including scheduler-spawned ones) have access.
 
 ### Manual
 

@@ -62,6 +62,7 @@ This is the part that feels like magic. Each agent has a set of config files it 
 |------|------------------|-----------------------|
 | `MEMORY.md` | Long-term knowledge | Saves user preferences, project decisions, accumulated know-how |
 | `.system-prompt.md` | Its own personality and rules | Adjusts output style, adds domain-specific rules as it learns |
+| `.agent-profile.yaml` | Preferences & behavior tuning | Adjusts output style, model selection, custom commands, notification prefs via MCP tools |
 | `.dashboard-workstations.json` | Dashboard work categories | Adds new workstation icons when it discovers new task types |
 | `.schedules/*.yaml` | Scheduled tasks | Creates, modifies, or disables recurring tasks |
 | `CLAUDE.md` | Its operating manual | Maintains a "custom rules" section with learned conventions |
@@ -73,8 +74,9 @@ You deploy a general-purpose agent. Over time, it becomes *your* agent.
 ```
 Day 1:   "check AAPL stock price"        → generic response
 Day 3:   "check AAPL"                    → remembers your format preference, adds 📈 workstation
+Day 5:   agent tunes its own profile     → concise output style, Chinese language, faster streaming
 Day 7:   agent has a morning briefing schedule, custom prompt for financial analysis,
-         and MEMORY.md full of your portfolio context
+         profile-driven model selection, and MEMORY.md full of your portfolio context
 ```
 
 ### Memory that persists
@@ -123,6 +125,10 @@ Phone → WeCom → Lambda (relay) ← Your server (polls) → Claude Code
                                       ↓
                               Results back to your phone
 ```
+
+### Self-configuration via MCP tools
+
+Agents can read and modify their own configuration profile at runtime using built-in MCP tools (`get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config`). Changes to output style, notification intervals, model selection, and custom commands are persisted in `.agent-profile.yaml` with a full audit trail.
 
 ### Claude can message you back
 

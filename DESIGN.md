@@ -112,6 +112,7 @@ Config can be either a single dict (backwards compatible) or a list of agents.
 | **Dashboard** | Password-protected read-only web UI at `/dashboard`. Shows real-time agent state (idle/working/done), streaming output, thinking, model info, token usage, recent tasks, cron jobs, and configurable workstations. Multi-agent aware. |
 | **Memory (Task History)** | SQLite-backed task history with keyword matching for contextual recall. Long-term knowledge is managed by Claude via native `MEMORY.md` files. |
 | **WeCom MCP Server** | Standalone stdio-based MCP server exposing `send_wecom_message`, `send_wecom_image`, `send_wecom_file` tools. Auto-configured via `.mcp.json` so all Claude processes (including scheduler-spawned) can send WeCom messages. See Section 15. |
+| **Agent Profile MCP Server** | Standalone stdio-based MCP server exposing `get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config` tools. Enables agents to self-configure output style, model selection, notifications, and custom commands. See Section 17. |
 
 ---
 
@@ -601,7 +602,8 @@ remote_control/
 │       │   └── static/
 │       │       └── dashboard.html  # Single-page dashboard UI
 │       ├── mcp/
-│       │   └── wecom_server.py  # Standalone MCP server (WeCom sending tools)
+│       │   ├── wecom_server.py  # Standalone MCP server (WeCom sending tools)
+│       │   └── profile_server.py  # Standalone MCP server (agent profile tools)
 │       ├── core/
 │       │   ├── __init__.py
 │       │   ├── router.py        # Command router (slash commands + /memory)
@@ -610,7 +612,8 @@ remote_control/
 │       │   ├── notifier.py      # Failure notifications, file/image sending + StreamHandler
 │       │   ├── memory.py        # Memory utilities (keyword extraction, context building)
 │       │   ├── store.py         # SQLite store (Store + ScopedStore per-agent wrapper)
-│       │   └── models.py        # Task, Session, Memory data models
+│       │   ├── models.py        # Task, Session, Memory data models
+│       │   └── profile.py       # Agent profile system (ProfileManager, hot-reload, audit trail)
 │       └── utils/
 │           └── __init__.py
 ├── relay/
@@ -1061,3 +1064,112 @@ The dashboard polls `/api/status` at regular intervals. The executor shares a `d
 - `thinking`: Last 5000 chars of thinking blocks (updated via `on_thinking` callback)
 
 This enables the dashboard to show live output and reasoning as a task runs.
+
+---
+
+## 17. Agent Profile System
+
+A per-agent self-configuration system that allows agents to tune their own behavior at runtime via MCP tools. Changes are persisted in `.agent-profile.yaml` in the agent's working directory with a full audit trail.
+
+### Profile Schema
+
+The profile is a Pydantic model (`AgentProfile`) with these sections:
+
+```yaml
+version: "1.0"
+agent_id: "1000002"
+updated_at: "2026-03-27T..."
+
+output_style:
+  language: "auto"          # "auto" | "zh-CN" | "en-US"
+  format: "balanced"        # "concise" | "balanced" | "detailed"
+  max_message_length: 1500
+  code_block_handling: "inline"  # "inline" | "file" | "truncate"
+
+notification:
+  streaming_interval_seconds: 10.0
+  progress_interval_seconds: 30.0
+  notify_on_completion: false
+  notify_on_error: true
+
+model_selection:
+  default_model: ""         # empty = use config.yaml default
+  task_type_overrides:      # regex-matched model routing
+    - pattern: "股票|stock"
+      model: "claude-sonnet-4-5"
+      rationale: "Faster for simple lookups"
+
+memory:
+  keyword_match_limit: 5
+  recent_context_limit: 5
+  max_context_chars: 2000
+
+custom_commands:            # agent-defined slash commands
+  morning:
+    prompt: "Run morning briefing: check stocks, news, calendar"
+    description: "Morning briefing"
+```
+
+### ProfileManager Architecture
+
+`ProfileManager` (`core/profile.py`) provides:
+
+- **Hot-reload**: Profile is re-read from disk when the file's mtime changes. No server restart needed.
+- **Audit trail**: Every `update()` call saves a timestamped snapshot to `.agent-profile-history/` before applying changes. Each snapshot includes the old profile, timestamp, and rationale.
+- **Bootstrap**: On first access, if no `.agent-profile.yaml` exists, the manager creates one by extracting hints from existing config files (`.system-prompt.md`, `.dashboard-workstations.json`).
+- **Defaults**: A `.agent-profile.default.yaml` can provide per-agent defaults. `reset()` reverts to these defaults (or built-in ones if the default file is absent).
+- **Atomic writes**: Profile saves use temp file + `os.replace()` to prevent corruption.
+
+### MCP Tools (Profile Server)
+
+The profile MCP server (`mcp/profile_server.py`) exposes four tools:
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `get_agent_config` | `name` (dotted key or "all") | Read a config value or the entire profile |
+| `set_agent_config` | `name`, `value` (JSON), `rationale` | Set a config value with audit trail |
+| `list_agent_config` | — | List full profile as formatted YAML with section descriptions |
+| `reset_agent_config` | `name` (optional) | Reset one key or entire profile to defaults |
+
+The server is registered in `.mcp.json` alongside the WeCom MCP server, so all Claude processes can self-configure:
+
+```json
+{
+  "mcpServers": {
+    "wecom": { ... },
+    "agent-profile": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["-m", "remote_control.mcp.profile_server"],
+      "env": {
+        "AGENT_WORKING_DIR": "/path/to/working/dir",
+        "AGENT_ID": "1000002"
+      }
+    }
+  }
+}
+```
+
+### Integration Points
+
+- **Executor**: Reads the profile before each task to apply output style hints, model overrides, and notification preferences.
+- **Runner**: Uses `model_selection.default_model` and `task_type_overrides` to select the model per task.
+- **Router**: Expands `custom_commands` — if a message starts with a custom command name, it is expanded to the configured prompt.
+- **Notifier**: Reads `notification` preferences for streaming and progress intervals.
+
+### Safety Boundaries
+
+- **Schema-enforced**: Only known keys can be set. Unknown fields are ignored (`extra="ignore"`).
+- **Audit trail**: Every change is recorded with timestamp and rationale.
+- **Reset capability**: Any key or the entire profile can be reset to defaults.
+- **No secrets**: The profile never stores credentials or security-sensitive values.
+
+### File Layout (per agent working directory)
+
+```
+working_dir/
+├── .agent-profile.yaml           # Current profile (agent-managed)
+├── .agent-profile.default.yaml   # Optional operator defaults (manual)
+└── .agent-profile-history/       # Audit trail snapshots
+    ├── 2026-03-27_093045_123456.yaml
+    └── 2026-03-27_103012_654321.yaml
+```

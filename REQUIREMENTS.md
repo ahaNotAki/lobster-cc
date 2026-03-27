@@ -109,7 +109,18 @@ Users interact via natural language messages and slash commands:
 | `/cron resume <id>` | Resume a paused scheduled task. |
 | `/help` | Show available commands. |
 
-### 5.5 Notifications & Output
+### 5.5 Agent Self-Configuration
+
+| ID | Requirement |
+|----|-------------|
+| SC1 | Agents can read and modify their own behavior profile (`.agent-profile.yaml`) at runtime via MCP tools. |
+| SC2 | Profile includes output style (language, format, length), notification preferences, model selection with task-type overrides, memory preferences, and custom commands. |
+| SC3 | All profile changes are persisted with an audit trail (timestamped snapshots in `.agent-profile-history/`). |
+| SC4 | Profile hot-reloads on file change (mtime-based) without server restart. |
+| SC5 | Profiles are schema-enforced (Pydantic validation) — only known keys accepted. |
+| SC6 | Full or per-key reset to defaults supported. |
+
+### 5.6 Notifications & Output
 
 | ID | Requirement |
 |----|-------------|
