@@ -40,7 +40,7 @@ ruff check src/ tests/
 ./deploy.sh user@host [/remote/path]
 
 # Deploy with fixed outbound IP proxy
-./scripts/setup-proxy.sh                    # one-time EC2 setup
+./scripts/setup.sh --proxy                  # one-time EC2 + Elastic IP setup
 ./deploy.sh user@host /path --proxy-ip <elastic-ip> --proxy-key ~/.ssh/rc-proxy-key.pem
 ```
 

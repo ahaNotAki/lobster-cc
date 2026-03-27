@@ -26,6 +26,10 @@ All outbound HTTP requests from `WeComAPI` are routed through a SOCKS5 tunnel to
 Run from any machine with AWS CLI:
 
 ```bash
+# Recommended: unified setup (also deploys relay if not already done)
+./scripts/setup.sh --proxy
+
+# Or standalone proxy only:
 ./scripts/setup-proxy.sh
 # Optional: --region us-west-2 --key-name my-key
 ```
