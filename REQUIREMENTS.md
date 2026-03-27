@@ -1,4 +1,4 @@
-# Remote Control - Requirements Document
+# lobster-cc — Requirements Document
 
 > A simplified OpenClaw-inspired system that uses 企业微信 (WeCom) as the remote control channel and local Claude Code CLI as the AI coding agent.
 

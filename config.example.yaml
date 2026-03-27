@@ -31,12 +31,12 @@ wecom:
 #     relay_url: "https://relay-2.example.com"
 
 agent:
-  claude_command: "claude"
-  default_working_dir: "/path/to/your/projects"
-  allowed_tools: []
-  model: ""
-  permission_mode: ""
-  task_timeout_seconds: 600
+  claude_command: "claude"           # path to Claude Code CLI binary
+  default_working_dir: "/path/to/your/projects"  # where Claude Code runs — your project directory (NOT the lobster-cc directory)
+  allowed_tools: []                  # empty = Claude Code defaults. See: https://docs.anthropic.com/en/docs/claude-code/settings
+  model: ""                          # empty = Claude Code default model. e.g. "claude-sonnet-4-20250514"
+  permission_mode: ""                # empty = default. Options: "default", "acceptEdits", "bypassPermissions"
+  task_timeout_seconds: 600          # max seconds per task (600 = 10 min, recommended: 1800 for complex tasks)
   max_output_length: 4000
 
 server:

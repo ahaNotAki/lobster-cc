@@ -1,4 +1,4 @@
-# Remote Control - Technical Design
+# lobster-cc — Technical Design
 
 ## 0. Message Receiving: Two Modes
 
@@ -584,7 +584,8 @@ remote_control/
 ├── src/
 │   └── remote_control/
 │       ├── __init__.py
-│       ├── main.py              # Entry point: parse args, start server
+│       ├── main.py              # CLI entry point: `lobster` / `lobster init`
+│       ├── cli_init.py          # Interactive config.yaml generator with credential validation
 │       ├── config.py            # Config loading & validation (Pydantic), list normalization
 │       ├── server.py            # aiohttp app setup, per-agent wiring, lifecycle
 │       ├── wecom/

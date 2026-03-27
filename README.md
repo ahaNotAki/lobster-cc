@@ -185,7 +185,7 @@ All crypto happens on your machine. The relay is a dumb pipe.
 ### 1. Install
 
 ```bash
-git clone https://github.com/anthropics/lobster-cc.git
+git clone https://github.com/ahaNotAki/lobster-cc.git
 cd lobster-cc
 pip install -e .
 ```
@@ -273,8 +273,15 @@ See [docs/aws-proxy.md](docs/aws-proxy.md) for details.
 ### Docker
 
 ```bash
-docker-compose up  # mount config.yaml via volume
+# Create config.yaml first (lobster init or copy config.example.yaml)
+cp config.example.yaml config.yaml
+# Edit config.yaml with your credentials...
+
+# Run — config.yaml is volume-mounted into the container
+docker-compose up
 ```
+
+> **Note**: Claude Code CLI must be available inside the container. The default Dockerfile does not include it — you'll need to mount it or install it in a custom image. For most users, running directly with `pip install` is simpler.
 
 ## Documentation
 

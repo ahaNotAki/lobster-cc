@@ -5,7 +5,7 @@ Thanks for your interest in contributing! This guide covers the basics.
 ## Dev Setup
 
 ```bash
-git clone https://github.com/user/lobster-cc.git
+git clone https://github.com/ahaNotAki/lobster-cc.git
 cd lobster-cc
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
