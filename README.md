@@ -1,41 +1,186 @@
-# lobster-cc 🦞
+<p align="center">
+  <img src="https://em-content.zobj.net/source/apple/391/lobster_1f99e.png" width="120" alt="lobster">
+</p>
 
-Control [Claude Code](https://docs.anthropic.com/en/docs/claude-code) from your phone via [WeCom (企业微信)](https://work.weixin.qq.com/). Send coding tasks, get streaming progress, receive results — all while away from your dev machine.
+<h1 align="center">lobster-cc</h1>
+
+<p align="center">
+  <strong>Your Claude Code, on a leash.</strong><br>
+  Control Claude Code from your phone. Send tasks, watch it think, get results back — all through WeCom.<br>
+  <em>Agents that remember, learn, and evolve with every task.</em>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#how-it-works">How It Works</a> &middot;
+  <a href="DESIGN.md">Design</a> &middot;
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+---
+
+## Why?
+
+You're in a meeting. On the train. At lunch. You think of something — a bug to fix, a file to check, a task to run. Your dev machine is at your desk, Claude Code is ready, but you're not there.
+
+**lobster-cc** bridges that gap. Send a message from your phone, and Claude Code gets to work. You get real-time streaming progress, and results land right back in your chat.
+
+No SSH. No VPN. No laptop required.
 
 ## Features
 
-- **WeCom Integration** — Send tasks from your phone, receive streaming results in chat
-- **Multi-Agent** — Run multiple bots with independent executors and isolated stores
-- **Relay Mode** — AWS Lambda relay, no public URL needed locally
-- **Dashboard** — Lobster aquarium WebUI with real-time streaming output and thinking
-- **Session Context** — Continuous conversation via Claude Code `--session-id`
-- **Persistent Memory** — Dual-layer: Claude's native MEMORY.md + SQLite keyword recall
-- **Media Support** — Send images, voice, video, files for Claude to analyze
-- **Scheduling** — Natural language scheduling via Claude Code scheduler plugin
-- **WeCom MCP Tools** — Claude can send messages/images/files back to WeCom
-- **Process Watchdog** — Safety net for runaway processes
+### Talk to Claude Code like texting a colleague
+
+Send any message and it becomes a coding task. Claude Code runs it in your project directory with full context — session history, file access, and all your MCP tools.
+
+```
+You:  the login page has a bug — users can't reset their password
+Bot:  [streams progress as Claude investigates, finds the issue, fixes it]
+Bot:  Fixed. The reset handler was checking `email` instead of `username`. Updated and tests pass.
+```
+
+### Continuous conversation, not one-off commands
+
+Every message builds on the last. Claude remembers what it just did, what files it read, what you discussed. It's a real working session, not isolated queries.
+
+```
+You:  read the README and summarize it
+Bot:  [summarizes the project]
+
+You:  now add an installation section
+Bot:  [adds it — knows exactly which README you mean]
+```
+
+Use `/new` when you want a fresh start.
+
+### Agents that evolve themselves
+
+This is the part that feels like magic. Each agent has a set of config files it can **read and write on its own**:
+
+| File | What it controls | How the agent uses it |
+|------|------------------|-----------------------|
+| `MEMORY.md` | Long-term knowledge | Saves user preferences, project decisions, accumulated know-how |
+| `.system-prompt.md` | Its own personality and rules | Adjusts output style, adds domain-specific rules as it learns |
+| `.dashboard-workstations.json` | Dashboard work categories | Adds new workstation icons when it discovers new task types |
+| `.schedules/*.yaml` | Scheduled tasks | Creates, modifies, or disables recurring tasks |
+| `CLAUDE.md` | Its operating manual | Maintains a "custom rules" section with learned conventions |
+
+The agent doesn't just execute tasks — it **adapts**. Ask it to do stock analysis a few times, and it starts remembering your preferred format, adding a "Stock" workstation to the dashboard, and tuning its system prompt for financial data. Ask it to monitor a service, and it sets up its own scheduled task.
+
+You deploy a general-purpose agent. Over time, it becomes *your* agent.
+
+```
+Day 1:   "check AAPL stock price"        → generic response
+Day 3:   "check AAPL"                    → remembers your format preference, adds 📈 workstation
+Day 7:   agent has a morning briefing schedule, custom prompt for financial analysis,
+         and MEMORY.md full of your portfolio context
+```
+
+### Memory that persists
+
+The self-evolution is backed by a dual-layer memory system:
+
+- **Long-term knowledge** — Claude manages its own `MEMORY.md`, accumulating decisions, preferences, and project context across all sessions
+- **Task recall** — previous task results are stored in SQLite, keyword-matched, and injected as context for new tasks
+
+Ask Claude about something it did last week and it remembers.
+
+### Watch it think in real time
+
+The **Lobster Dashboard** gives you a live window into Claude's work:
+
+- Streaming output as Claude types
+- Thinking/reasoning blocks
+- Token usage, context window, cost
+- Task history and status
+- Per-agent lobster with workstation animations
+
+The dashboard polls every second and shows exactly what Claude is doing right now — including its internal reasoning.
+
+### Run multiple specialized agents
+
+One server, many bots. Each gets its own WeCom identity, working directory, task queue, and isolated storage:
+
+```yaml
+wecom:
+  - name: "backend"
+    working_dir: "/projects/api-server"
+    # ...
+  - name: "frontend"
+    working_dir: "/projects/web-app"
+    # ...
+```
+
+Send backend tasks to one bot, frontend tasks to another. They work independently with zero cross-talk.
+
+### No public URL needed
+
+Most chat-to-CLI tools need ngrok or a public endpoint. lobster-cc uses an **AWS Lambda relay** — WeCom pushes messages to Lambda, your local server polls for them. Your machine stays behind the firewall.
+
+```
+Phone → WeCom → Lambda (relay) ← Your server (polls) → Claude Code
+                                      ↓
+                              Results back to your phone
+```
+
+### Claude can message you back
+
+Via built-in MCP tools, Claude can proactively send you messages, images, and files:
+
+```
+You:  generate a chart of this week's metrics and send it to me
+Bot:  [creates chart.png, then sends it as a WeCom image message]
+```
+
+This works for scheduled tasks too — set up a daily report and Claude sends results to your chat automatically.
+
+### Natural language scheduling
+
+No crontabs to write. Just describe what you want:
+
+```
+You:  every weekday at 9am, run the test suite and report failures
+Bot:  [sets up the schedule — results delivered via WeCom]
+```
+
+### Send anything
+
+Not just text — send images, voice messages, videos, and files. Claude sees them all:
+
+```
+You:  [sends screenshot of a UI bug]
+Bot:  I see the issue — the modal is overflowing on mobile. Let me fix the CSS...
+```
 
 ## How It Works
 
 ```
-You (WeCom app)  →  AWS Lambda relay  ←  Local server (polls)  →  Claude Code CLI
-     ↑                                     |       |
-     └──────────── WeCom API (replies) ────┘       └── Dashboard WebUI
+┌──────────┐  callback  ┌────────────────┐  poll   ┌─────────────────┐
+│  You on  │───────────►│  AWS Lambda    │◄────────│  lobster-cc     │
+│  WeCom   │            │  (relay)       │────────►│  server         │
+│  📱      │◄───────────│  + DynamoDB    │         │                 │
+└──────────┘  reply     └────────────────┘         │  Claude Code ←──┤
+                                                   │  Dashboard   ←──┤
+                                                   └─────────────────┘
 ```
 
 1. You send a message in WeCom
-2. WeCom pushes it to an AWS Lambda relay (stored in DynamoDB)
-3. Your local server polls the relay, decrypts, and runs it through Claude Code CLI
-4. Results stream back to you via WeCom API
+2. WeCom pushes the encrypted callback to an AWS Lambda relay
+3. Lambda stores it in DynamoDB (raw, encrypted)
+4. Your local server polls the relay, decrypts locally, and runs it through Claude Code CLI
+5. Results stream back to you via WeCom API — short replies inline, long ones as files
+
+All crypto happens on your machine. The relay is a dumb pipe.
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Python 3.11+**
-- **Claude Code CLI** installed and authenticated (`claude --version`)
-- **WeCom enterprise account** with a custom app (自建应用)
-- **AWS account** for the relay (Lambda + DynamoDB + API Gateway)
+- Python 3.11+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- [WeCom](https://work.weixin.qq.com/) enterprise account with a custom app (自建应用)
+- AWS account (for the relay)
 
 ### 1. Install
 
@@ -45,14 +190,15 @@ cd lobster-cc
 pip install -e .
 ```
 
-### 2. Deploy the AWS Relay
+### 2. Deploy the relay
+
+One command deploys Lambda + API Gateway + DynamoDB:
 
 ```bash
-cd relay
-sam build && sam deploy --guided
+cd relay && sam build && sam deploy --guided
 ```
 
-This creates the Lambda + API Gateway + DynamoDB in one command. See [relay/README.md](relay/README.md) for details.
+See [relay/README.md](relay/README.md) for details or manual setup.
 
 ### 3. Configure
 
@@ -60,18 +206,13 @@ This creates the Lambda + API Gateway + DynamoDB in one command. See [relay/READ
 lobster init
 ```
 
-Interactive wizard that prompts for WeCom credentials and validates them. Or manually:
+Interactive wizard — prompts for WeCom credentials, validates them, writes `config.yaml`.
 
-```bash
-cp config.example.yaml config.yaml
-# Edit with your WeCom Corp ID, Agent ID, Secret, Token, AES Key, relay URL
-```
+### 4. Set up WeCom callback
 
-### 4. Configure WeCom Callback
-
-In WeCom admin console → Your App → 接收消息 → 设置API接收:
-- **URL**: Your API Gateway endpoint from step 2
-- **Token** / **EncodingAESKey**: Must match both Lambda env vars and config.yaml
+In WeCom admin → Your App → 接收消息 → 设置API接收:
+- **URL**: The API Gateway endpoint from step 2
+- **Token** / **EncodingAESKey**: Must match your config.yaml and Lambda env vars
 
 ### 5. Run
 
@@ -79,58 +220,46 @@ In WeCom admin console → Your App → 接收消息 → 设置API接收:
 lobster -c config.yaml
 ```
 
-Send a message to your WeCom bot — it should respond!
+Send a message to your bot. It should respond.
 
-## Usage
+## Commands
 
-Send any text to create a coding task. Use slash commands for control:
-
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `/status` | Show latest task status |
+| *any text* | Creates a task — Claude Code runs it |
+| `/status` | Latest task status |
 | `/cancel` | Cancel running task |
-| `/list` | List recent tasks |
-| `/new` | Start fresh session (reset context) |
-| `/cd <path>` | Change working directory |
-| `/memory` | View memory stats |
+| `/list` | Recent tasks |
+| `/new` | Fresh session (reset context) |
+| `/cd <path>` | Switch working directory |
+| `/output <id>` | Full output of a completed task |
+| `/memory` | Memory stats |
+| `/memory show` | View stored knowledge |
+| `/restart` | Restart Claude (reload MCP servers) |
 | `/help` | Show all commands |
 
-### Session Context
+## Deployment
 
-Messages share context within a session:
-
-```
-You:  read src/config.py and explain the structure
-Bot:  [explains the config module]
-
-You:  add a new field "max_retries" with default 3
-Bot:  [adds the field, knowing exactly which file you mean]
-```
-
-### Multi-Agent Setup
-
-Run multiple bots from a single server — each with its own executor, store, and working directory:
-
-```yaml
-wecom:
-  - name: "coding"
-    agent_id: 1000002
-    working_dir: "/path/to/project-a"
-    # ... credentials
-  - name: "review"
-    agent_id: 1000003
-    working_dir: "/path/to/project-b"
-    # ... credentials
-```
-
-### Deploy to Remote Machine
+### Remote machine
 
 ```bash
 ./deploy.sh user@host [/remote/path]
-
-# With fixed outbound IP (WeCom IP whitelist):
-./deploy.sh user@host /path --proxy-ip <elastic-ip> --proxy-key ~/.ssh/rc-proxy-key.pem
 ```
+
+Syncs code, installs deps, starts the server. Your `config.yaml` and database stay untouched.
+
+### With fixed outbound IP
+
+WeCom may require IP whitelisting. Deploy with an EC2 SOCKS5 proxy:
+
+```bash
+./scripts/setup-proxy.sh                    # one-time EC2 setup
+./deploy.sh user@host /path \
+    --proxy-ip <elastic-ip> \
+    --proxy-key ~/.ssh/rc-proxy-key.pem
+```
+
+See [docs/aws-proxy.md](docs/aws-proxy.md) for details.
 
 ### Docker
 
@@ -140,13 +269,13 @@ docker-compose up  # mount config.yaml via volume
 
 ## Documentation
 
-| Doc | Description |
-|-----|-------------|
-| [DESIGN.md](DESIGN.md) | Full technical design and architecture |
+| | |
+|---|---|
+| [DESIGN.md](DESIGN.md) | Technical architecture and design decisions |
+| [relay/README.md](relay/README.md) | AWS relay deployment (SAM + manual) |
+| [docs/aws-proxy.md](docs/aws-proxy.md) | Fixed outbound IP proxy guide |
+| [docs/wecom-mcp.md](docs/wecom-mcp.md) | WeCom MCP tools for Claude |
 | [REQUIREMENTS.md](REQUIREMENTS.md) | Requirements and milestones |
-| [relay/README.md](relay/README.md) | AWS relay setup (SAM + manual) |
-| [docs/aws-proxy.md](docs/aws-proxy.md) | Fixed outbound IP proxy setup |
-| [docs/wecom-mcp.md](docs/wecom-mcp.md) | WeCom MCP server for Claude |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and PR process |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 
@@ -154,7 +283,7 @@ docker-compose up  # mount config.yaml via volume
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest              # run all tests
+python -m pytest              # 338 tests
 ruff check src/ tests/        # lint
 ```
 
