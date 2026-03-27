@@ -195,10 +195,12 @@ pip install -e .
 One command deploys Lambda + API Gateway + DynamoDB:
 
 ```bash
-cd relay && sam build && sam deploy --guided
+./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
 ```
 
-See [relay/README.md](relay/README.md) for details or manual setup.
+The script is fully idempotent — re-running skips existing resources. Only requires AWS CLI (no SAM needed).
+
+See [relay/README.md](relay/README.md) for SAM alternative, manual setup, or resource details.
 
 ### 3. Configure
 

@@ -2,7 +2,28 @@
 
 All resources created for the WeCom relay endpoint.
 
-## Quick Deploy with SAM
+## Quick Deploy (Recommended)
+
+One script deploys everything using AWS CLI — no extra tools needed:
+
+```bash
+./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+```
+
+Options:
+| Flag | Description |
+|------|-------------|
+| `--token` | WeCom callback verification token (required on first run) |
+| `--aes-key` | WeCom AES encoding key (required on first run) |
+| `--agent-configs` | Multi-agent JSON, e.g. `'{"1000002":{"token":"x","aes_key":"y"}}'` |
+| `--region` | AWS region (default: `ap-southeast-1`) |
+| `--ttl-days` | Message retention days (default: 7) |
+| `--update-code` | Only update Lambda code (skip infra) |
+| `--teardown` | Delete all relay resources |
+
+The script is fully idempotent — re-running skips existing resources.
+
+## Alternative: Deploy with SAM
 
 Deploy the entire relay stack (Lambda + API Gateway + DynamoDB) in one command using [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html).
 
