@@ -7,7 +7,7 @@ from pathlib import Path
 
 from remote_control.config import NotificationsConfig
 from remote_control.core.models import Task
-from remote_control.wecom.api import WeComAPI, WECOM_MAX_TEXT_BYTES
+from remote_control.wecom.api import WeComAPI
 
 logger = logging.getLogger(__name__)
 

@@ -360,7 +360,7 @@ async def test_send_text_retries_on_errcode(wecom_config):
     api._client.post = AsyncMock(side_effect=[error_resp, ok_resp, ok_resp])
 
     long_text = "a" * 3000  # > 2048 bytes, will split into 2 chunks
-    result = await api.send_text("user1", long_text)
+    await api.send_text("user1", long_text)
     # First chunk: error → retry → ok (2 calls), second chunk: ok (1 call) = 3 calls
     assert api._client.post.call_count == 3
 

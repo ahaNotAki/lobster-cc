@@ -1,6 +1,5 @@
 """Tests for the agent runner."""
 
-import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock
@@ -233,7 +232,7 @@ async def test_multi_turn_text_tracking():
     # Use printf to emit the stream-json lines
     runner.build_command = lambda *a, **k: ["printf", all_lines.replace("\n", "\\n")]
 
-    result = await runner._run_once(
+    await runner._run_once(
         "test", "sess", False, "/tmp",
         on_output=capture,
     )

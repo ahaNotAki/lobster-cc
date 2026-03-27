@@ -241,9 +241,8 @@ def create_app(config: AppConfig) -> web.Application:
         if not ag:
             return web.json_response({"error": "no agents configured"}, status=500)
 
-        executor = ag["executor"]
         agent_id = str(ag["wecom_config"].agent_id)
-        scoped = ScopedStore(store, agent_id)
+        scoped = ScopedStore(store, agent_id)  # noqa: F841 — used in future auto-expire logic
 
         # Auto-expire any stale running task with the same cron name for this agent.
         # This handles cases where the previous run crashed without calling /finish.
