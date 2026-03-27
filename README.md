@@ -190,17 +190,21 @@ cd lobster-cc
 pip install -e .
 ```
 
-### 2. Deploy the relay
+### 2. Deploy AWS infrastructure
 
-One command deploys Lambda + API Gateway + DynamoDB:
+One command sets up everything — relay (Lambda + API Gateway + DynamoDB) and optionally an EC2 proxy with Elastic IP:
 
 ```bash
-./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+# Relay only
+./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+
+# Relay + EC2 proxy (for WeCom IP whitelist)
+./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY --proxy
 ```
 
-The script is fully idempotent — re-running skips existing resources. Only requires AWS CLI (no SAM needed).
+Fully idempotent — re-running skips existing resources. Only requires AWS CLI.
 
-See [relay/README.md](relay/README.md) for SAM alternative, manual setup, or resource details.
+See [relay/README.md](relay/README.md) for SAM alternative or resource details.
 
 ### 3. Configure
 
@@ -252,10 +256,13 @@ Syncs code, installs deps, starts the server. Your `config.yaml` and database st
 
 ### With fixed outbound IP
 
-WeCom may require IP whitelisting. Deploy with an EC2 SOCKS5 proxy:
+WeCom may require IP whitelisting. The `--proxy` flag in setup.sh creates the EC2 proxy:
 
 ```bash
-./scripts/setup-proxy.sh                    # one-time EC2 setup
+# If you didn't use --proxy during setup:
+./scripts/setup.sh --proxy
+
+# Deploy with proxy tunnel:
 ./deploy.sh user@host /path \
     --proxy-ip <elastic-ip> \
     --proxy-key ~/.ssh/rc-proxy-key.pem

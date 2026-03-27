@@ -4,13 +4,16 @@ All resources created for the WeCom relay endpoint.
 
 ## Quick Deploy (Recommended)
 
-One script deploys everything using AWS CLI — no extra tools needed:
+Use the unified setup script — deploys relay and optionally an EC2 proxy in one command:
 
 ```bash
-./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+# Relay only
+./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+
+# Relay + EC2 proxy for fixed outbound IP
+./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY --proxy
 ```
 
-Options:
 | Flag | Description |
 |------|-------------|
 | `--token` | WeCom callback verification token (required on first run) |
@@ -18,10 +21,11 @@ Options:
 | `--agent-configs` | Multi-agent JSON, e.g. `'{"1000002":{"token":"x","aes_key":"y"}}'` |
 | `--region` | AWS region (default: `ap-southeast-1`) |
 | `--ttl-days` | Message retention days (default: 7) |
+| `--proxy` | Also provision EC2 proxy with Elastic IP |
 | `--update-code` | Only update Lambda code (skip infra) |
-| `--teardown` | Delete all relay resources |
+| `--teardown` | Delete ALL resources (relay + proxy) |
 
-The script is fully idempotent — re-running skips existing resources.
+Fully idempotent — re-running skips existing resources. Only requires AWS CLI.
 
 ## Alternative: Deploy with SAM
 
