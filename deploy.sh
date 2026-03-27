@@ -89,6 +89,8 @@ rsync -avz --delete \
     --exclude '.pytest_cache/' \
     --exclude '*.egg-info/' \
     --exclude '*.db' \
+    --exclude '*.db-wal' \
+    --exclude '*.db-shm' \
     --exclude '.git/' \
     --exclude '.remote_control.pid' \
     --exclude '.proxy_tunnel.pid' \
@@ -114,12 +116,6 @@ for d in dirs:
 
     for WD in \$WORKING_DIRS; do
         [ -d "\$WD" ] || mkdir -p "\$WD"
-
-        # Seed .dashboard-workstations.json
-        if [ ! -f "\$WD/.dashboard-workstations.json" ] && [ -f "$REMOTE_DIR/scripts/default-workstations.json" ]; then
-            cp "$REMOTE_DIR/scripts/default-workstations.json" "\$WD/.dashboard-workstations.json"
-            echo "  Seeded .dashboard-workstations.json to \$WD/"
-        fi
 
         # Seed .system-prompt.md from example template
         if [ ! -f "\$WD/.system-prompt.md" ] && [ -f "$REMOTE_DIR/scripts/templates/system-prompt-example.md" ]; then
