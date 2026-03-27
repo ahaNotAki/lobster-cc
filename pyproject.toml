@@ -1,0 +1,52 @@
+[project]
+name = "lobster-cc"
+version = "0.1.0"
+description = "Control Claude Code from your phone via WeCom — Lobster for Claude Code"
+license = {text = "MIT"}
+authors = [{name = "Pengfei Liu"}]
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["claude-code", "wecom", "remote-control", "ai-agent", "cli", "lobster"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "aiohttp>=3.9",
+    "httpx[socks]>=0.27",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "pycryptodome>=3.20",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+remote-control = "remote_control.main:main"
+lobster = "remote_control.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/remote_control"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100

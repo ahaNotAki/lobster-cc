@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🦞 Lobster Control</title>
+<style>
+:root{--bg:#060b1e;--card:rgba(255,255,255,0.04);--card-hover:rgba(255,255,255,0.07);--border:rgba(255,255,255,0.06);--text:#d4d4d8;--dim:#6b7280;--accent:#60a5fa;--green:#4ade80;--red:#f87171;--orange:#fb923c;--purple:#c084fc;--cyan:#22d3ee}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;min-height:100vh}
+
+/* AQUARIUM */
+.aquarium{position:relative;width:100%;height:400px;background:linear-gradient(180deg,#040918 0%,#0a1628 30%,#0d2240 60%,#12325a 85%,#1a4570 100%);overflow:hidden}
+.aquarium::before{content:'';position:absolute;top:0;left:20%;width:60%;height:100%;background:radial-gradient(ellipse at 50% 0%,rgba(96,165,250,0.03) 0%,transparent 70%);pointer-events:none}
+.ray{position:absolute;top:-20px;width:2px;height:200px;background:linear-gradient(180deg,rgba(255,255,255,0.06),transparent);transform:rotate(15deg);animation:rayShimmer 8s ease-in-out infinite}
+@keyframes rayShimmer{0%,100%{opacity:0.3}50%{opacity:0.8}}
+.sand{position:absolute;bottom:0;width:100%;height:55px;background:linear-gradient(180deg,#3d2e1a,#2e2214);border-radius:80% 80% 0 0/25px 25px 0 0}
+.weed{position:absolute;bottom:45px;width:6px;background:linear-gradient(180deg,#34d399,#065f46);border-radius:3px 3px 0 0;animation:sway 3s ease-in-out infinite;transform-origin:bottom;opacity:0.7}
+@keyframes sway{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+.bubble{position:absolute;border-radius:50%;background:radial-gradient(circle at 30% 30%,rgba(255,255,255,0.2),rgba(255,255,255,0.02));animation:rise linear infinite}
+@keyframes rise{0%{transform:translateY(0) scale(1);opacity:0.4}100%{transform:translateY(-420px) scale(1.5);opacity:0}}
+.coral{position:absolute;bottom:48px;font-size:20px;opacity:0.5}
+.ws-area{position:absolute;bottom:50px;left:0;right:0;display:flex;justify-content:space-evenly;padding:0 5%}
+.workstation{display:flex;flex-direction:column;align-items:center;transition:all 0.5s;filter:brightness(0.5) saturate(0.7)}
+.workstation.active{filter:brightness(1.3) saturate(1);transform:translateY(-2px)}
+.ws-icon{font-size:26px;line-height:1;margin-bottom:2px;transition:transform 0.3s}
+.workstation.active .ws-icon{transform:scale(1.15)}
+.ws-desk{width:52px;height:22px;background:linear-gradient(180deg,rgba(120,90,60,0.5),rgba(80,60,40,0.3));border-radius:4px 4px 1px 1px;border:1px solid rgba(140,110,70,0.2);position:relative}
+.ws-desk::after{content:'';position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);width:6px;height:7px;background:rgba(80,60,40,0.3);border-radius:0 0 1px 1px}
+.workstation.active .ws-desk{background:linear-gradient(180deg,rgba(180,140,80,0.8),rgba(140,100,60,0.6));box-shadow:0 0 18px rgba(255,200,100,0.2);border-color:rgba(255,200,120,0.4)}
+.ws-label{font-size:9px;color:rgba(255,255,255,0.55);letter-spacing:1px;margin-top:9px;text-transform:uppercase;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.7)}
+.workstation.active .ws-label{color:#fff;text-shadow:0 0 8px rgba(255,200,100,0.5)}
+
+/* LOBSTER — one per agent */
+.lobster-wrap{position:absolute;z-index:10;transition:left 1.2s cubic-bezier(0.4,0,0.2,1),bottom 0.8s cubic-bezier(0.4,0,0.2,1);transform:translateX(-50%);bottom:210px}
+.lobster-wrap.flip{transform:translateX(-50%) scaleX(-1)}
+.lobster-wrap.flip .speech{transform:scaleX(-1)}
+.lobster-wrap.flip .lobster-name{transform:scaleX(-1)}
+.lobster-wrap.working,.lobster-wrap.error{bottom:76px}
+.lobster-wrap.done{bottom:150px}
+.lobster{font-size:44px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.4))}
+.lobster-wrap.idle .lobster{animation:swim 3s ease-in-out infinite}
+.lobster-wrap.working .lobster{animation:work 0.5s ease-in-out infinite}
+.lobster-wrap.error .lobster{animation:shake 0.2s infinite;filter:drop-shadow(0 0 6px rgba(248,113,113,0.5))}
+.lobster-wrap.done .lobster{animation:celebrate 0.5s ease-in-out infinite}
+@keyframes swim{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes work{0%,100%{transform:rotate(0)}25%{transform:rotate(-2deg)}75%{transform:rotate(2deg)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
+@keyframes celebrate{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.05)}}
+.lobster-name{text-align:center;font-size:10px;color:rgba(255,255,255,0.9);margin-top:2px;letter-spacing:0.5px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.8)}
+.speech{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:4px;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.25);border-radius:8px;padding:5px 12px;font-size:11px;color:#fff;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity 0.4s;text-shadow:0 1px 2px rgba(0,0,0,0.5)}
+.speech.show{opacity:1}
+.speech::after{content:'';position:absolute;top:100%;left:50%;margin-left:-4px;border:4px solid transparent;border-top-color:rgba(0,0,0,0.6)}
+
+/* PANELS */
+.panel{max-width:1000px;margin:0 auto;padding:16px 12px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:768px){.grid-2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;transition:background 0.2s}
+.card:hover{background:var(--card-hover)}
+.card h2{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;font-weight:600;display:flex;align-items:center;gap:6px}
+.agent-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.3px}
+.agent-badge.a0{background:rgba(96,165,250,0.2);color:var(--accent)}
+.agent-badge.a1{background:rgba(192,132,252,0.2);color:var(--purple)}
+.status-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.running{background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 1.5s infinite}
+.dot.idle{background:var(--dim)}
+.dot.error{background:var(--red)}
+.dot.done{background:var(--accent)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
+.tag{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.tag.running{background:rgba(74,222,128,0.15);color:var(--green)}
+.tag.completed{background:rgba(96,165,250,0.15);color:var(--accent)}
+.tag.failed{background:rgba(248,113,113,0.15);color:var(--red)}
+.tag.cancelled{background:rgba(251,146,60,0.15);color:var(--orange)}
+.tag.queued{background:rgba(255,255,255,0.06);color:var(--dim)}
+.mono{font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:12px}
+.dim{color:var(--dim);font-size:12px}
+.elapsed{font-size:20px;font-weight:300;font-family:'SF Mono',monospace;color:var(--accent)}
+.stream-box{background:rgba(0,0,0,0.25);border-radius:6px;padding:10px 12px;font-family:'SF Mono',monospace;font-size:11px;line-height:1.7;max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px;border:1px solid rgba(255,255,255,0.05)}
+.stream-box.output{color:var(--green)}
+.stream-box.thinking{color:var(--purple);background:rgba(30,15,40,0.4)}
+.task-list,.cron-list{list-style:none}
+.task-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.task-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-dur{color:var(--dim);font-size:11px;white-space:nowrap}
+.task-id{font-family:'SF Mono',monospace;font-size:10px;color:var(--dim);min-width:50px}
+/* Timeline swimlane */
+.tl-lane{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.tl-lane:last-child{border-bottom:none}
+.tl-lane-label{font-size:11px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.tl-axis{position:relative;height:44px;margin:0 0 2px 0}
+.tl-track{position:absolute;top:20px;left:0;right:0;height:2px;background:rgba(255,255,255,0.08);border-radius:1px}
+.tl-tick{position:absolute;top:0;font-size:9px;color:var(--dim);transform:translateX(-50%);font-family:'SF Mono',monospace;user-select:none}
+.tl-tick::after{content:'';position:absolute;left:50%;bottom:-4px;width:1px;height:4px;background:rgba(255,255,255,0.1)}
+.tl-dot{position:absolute;top:15px;width:12px;height:12px;border-radius:50%;transform:translateX(-50%);cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;z-index:2}
+.tl-dot:hover{transform:translateX(-50%) scale(1.4);z-index:5}
+.tl-dot.daily{background:var(--cyan)}
+.tl-dot.weekday{background:var(--accent)}
+.tl-dot.weekly{background:var(--orange);border-radius:2px;transform:translateX(-50%) rotate(45deg)}
+.tl-dot.weekly:hover{transform:translateX(-50%) rotate(45deg) scale(1.3)}
+.tl-dot.disabled{opacity:0.3}
+.tl-range{position:absolute;top:18px;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--cyan));opacity:0.6;z-index:1}
+.tl-range-dot{position:absolute;top:15px;width:12px;height:12px;border-radius:50%;background:var(--green);transform:translateX(-50%);cursor:pointer;transition:transform 0.15s;z-index:2}
+.tl-range-dot:hover{transform:translateX(-50%) scale(1.4)}
+.tl-range-dot.disabled{opacity:0.3}
+.tl-tooltip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:5px 10px;font-size:10px;color:#fff;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:10}
+.tl-dot:hover .tl-tooltip,.tl-range-dot:hover .tl-tooltip{opacity:1}
+.tl-dot-active{transform:translateX(-50%) scale(1.5) !important;box-shadow:0 0 8px var(--cyan) !important}
+.tl-label{position:absolute;top:30px;font-size:8px;color:var(--dim);transform:translateX(-50%);white-space:nowrap;max-width:60px;overflow:hidden;text-overflow:ellipsis;text-align:center}
+/* Prompt expand (reused from old cron-item) */
+.sched-detail{display:none;margin:6px 0 0 0;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.06);border-radius:6px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:350px;overflow-y:auto}
+.sched-detail.show{display:block;animation:slideDown 0.2s ease-out}
+@keyframes slideDown{from{opacity:0;max-height:0}to{opacity:1;max-height:350px}}
+.tl-legend{display:flex;gap:14px;margin-top:10px;font-size:10px;color:var(--dim)}
+.tl-legend-item{display:flex;align-items:center;gap:4px}
+.tl-legend-dot{width:8px;height:8px;border-radius:50%}
+.tl-legend-dot.daily{background:var(--cyan)}
+.tl-legend-dot.weekday{background:var(--accent)}
+.tl-legend-dot.weekly{background:var(--orange);border-radius:1px;transform:rotate(45deg)}
+.tl-legend-dot.periodic{background:var(--green)}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px 16px;font-size:12px}
+.info-grid .label{color:var(--dim)}
+.info-grid .value{font-family:'SF Mono',monospace}
+.ctx-bar-wrap{margin-bottom:12px}
+.ctx-bar-label{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px}
+.ctx-bar-track{height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden}
+.ctx-bar-fill{height:100%;border-radius:3px;transition:width 0.5s}
+
+@media(max-width:600px){.aquarium{height:300px}.lobster{font-size:34px}.ws-icon{font-size:20px}.ws-desk{width:38px;height:18px}}
+</style>
+</head>
+<body>
+<div class="aquarium" id="aquarium">
+  <div class="sand"></div>
+  <div class="ws-area" id="wsArea"></div>
+</div>
+
+<div class="panel">
+  <!-- Agent panels (dynamically generated) -->
+  <div id="agentPanels"></div>
+
+  <!-- Model Info -->
+  <div class="card" id="modelCard">
+    <h2>🤖 Model</h2>
+    <div id="modelContent"></div>
+  </div>
+
+  <!-- Scheduled Tasks Timeline -->
+  <div class="card">
+    <h2>⏰ Scheduled Tasks</h2>
+    <div id="schedTimeline"></div>
+    <div id="schedDetail"></div>
+  </div>
+
+  <!-- Recent Tasks -->
+  <div class="card">
+    <h2>📋 Recent Tasks</h2>
+    <ul class="task-list" id="taskList"></ul>
+  </div>
+</div>
+
+<script>
+const AGENT_COLORS = ['a0','a1','a2','a3'];
+let wsPositions={}, wsRendered=false;
+let lobsters={}; // agent_name -> {el, pos, dir, state, swimTimer}
+const expandedScheds=new Set(); // track which schedule items are expanded
+let lastSchedJson=''; // skip re-render when unchanged
+
+function renderWorkstations(wsList){
+  if(wsRendered)return;
+  const area=document.getElementById('wsArea');
+  area.innerHTML='';
+  wsList.forEach(ws=>{
+    const d=document.createElement('div');d.className='workstation';d.id='ws-'+ws.id;
+    d.innerHTML=`<div class="ws-icon">${ws.icon}</div><div class="ws-desk"></div><div class="ws-label">${ws.label}</div>`;
+    area.appendChild(d);
+  });
+  wsRendered=true;
+  requestAnimationFrame(()=>{
+    const aq=document.getElementById('aquarium'),aqW=aq.offsetWidth;
+    wsList.forEach(ws=>{
+      const el=document.getElementById('ws-'+ws.id);
+      if(el){const r=el.getBoundingClientRect(),ar=aq.getBoundingClientRect();
+        wsPositions[ws.id]={el,centerPct:((r.left-ar.left+r.width/2)/aqW)*100};}
+    });
+  });
+}
+
+function ensureLobster(name, idx){
+  if(lobsters[name])return lobsters[name];
+  const aq=document.getElementById('aquarium');
+  const wrap=document.createElement('div');
+  wrap.className='lobster-wrap idle';
+  const startPos=30+idx*20;
+  wrap.style.left=startPos+'%';
+  wrap.innerHTML=`<div class="speech"></div><div class="lobster">🦞</div><div class="lobster-name">${name}</div>`;
+  aq.appendChild(wrap);
+  const state={el:wrap,pos:startPos,dir:idx%2===0?1:-1,state:'idle'};
+  lobsters[name]=state;
+  // Start swimming
+  state.swimTimer=setInterval(()=>{
+    if(state.state!=='idle')return;
+    if(Math.random()<0.12)state.dir*=-1;
+    let n=state.pos+state.dir*(1.5+Math.random()*2);
+    n=Math.max(6,Math.min(94,n));
+    moveLobster(name,n);
+  },2500+idx*500);
+  return state;
+}
+
+function moveLobster(name,pct){
+  const s=lobsters[name];if(!s)return;
+  if(pct<s.pos-1)s.el.classList.add('flip');else if(pct>s.pos+1)s.el.classList.remove('flip');
+  s.pos=pct;s.el.style.left=pct+'%';
+}
+
+function renderAgentPanels(agentsList){
+  const container=document.getElementById('agentPanels');
+  // Update existing badges with current names
+  if(container.children.length>0){
+    agentsList.forEach((a,i)=>{
+      const badge=container.querySelector(`#agent-card-${i} .agent-badge`);
+      if(badge)badge.textContent=a.name;
+    });
+    return;
+  }
+  container.innerHTML='';
+  const grid=document.createElement('div');grid.className='grid-2';
+  agentsList.forEach((a,i)=>{
+    grid.innerHTML+=`<div class="card" id="agent-card-${i}">
+      <h2><span class="agent-badge ${AGENT_COLORS[i]}">${a.name}</span> Status</h2>
+      <div class="status-row">
+        <div class="dot idle" id="dot-${i}"></div>
+        <span id="label-${i}" class="tag queued">空闲</span>
+        <span class="elapsed" id="elapsed-${i}">--:--</span>
+      </div>
+      <div id="msg-${i}" class="mono" style="margin:8px 0;min-height:16px;font-size:12px;color:var(--text);word-break:break-all;line-height:1.5"></div>
+      <div class="dim">PID <span id="pid-${i}" class="mono">-</span> · RAM <span id="rss-${i}" class="mono">-</span></div>
+      <div class="stream-box output" id="out-${i}" style="display:none;max-height:200px"></div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:4px"><span style="font-size:12px">🧠</span><span class="dim" style="font-size:10px">Thinking</span></div>
+      <div class="stream-box thinking" id="think-${i}" style="max-height:120px;min-height:40px">Waiting...</div>
+    </div>`;
+  });
+  container.appendChild(grid);
+}
+
+function updateUI(data){
+  const agents=data.agents||[data.agent];
+  const procs=data.all_processes||[data.process];
+  const models=data.all_models||[data.model||{}];
+  if(data.workstations)renderWorkstations(data.workstations);
+  renderAgentPanels(agents);
+
+  // Clear workstation highlights, then only activate the ones in use
+  document.querySelectorAll('.workstation').forEach(w=>w.classList.remove('active'));
+
+  agents.forEach((a,i)=>{
+    const state=a.state,name=a.name||'agent'+i;
+    const L=ensureLobster(name,i);
+    // Per-agent lobster config (emoji + name)
+    const agLobster=(data.all_lobsters||[])[i]||data.lobster||{};
+    if(agLobster.emoji)L.el.querySelector('.lobster').textContent=agLobster.emoji;
+    // Update name in real-time from config
+    L.el.querySelector('.lobster-name').textContent=name;
+    const ac=state==='idle'?'idle':state==='error'?'error':state==='done'?'done':'working';
+    const isFlip=L.el.classList.contains('flip');
+    L.el.className='lobster-wrap '+ac;
+    if(isFlip)L.el.classList.add('flip');
+    L.state=state;
+
+    // Only the WORKING agent moves to a workstation
+    if(state!=='idle'&&state!=='done'&&state!=='error'){
+      const ws=wsPositions[state]||wsPositions['general'];
+      if(ws){ws.el.classList.add('active');moveLobster(name,ws.centerPct+(i*6-3));}
+    }else if(state==='done'&&Math.abs(L.pos-50)>15){moveLobster(name,35+i*25);}
+
+    const sp=L.el.querySelector('.speech');
+    if(a.task_message&&state!=='idle'){sp.textContent=a.task_message.substring(0,28)+(a.task_message.length>28?'…':'');sp.classList.add('show');}
+    else sp.classList.remove('show');
+
+    // Panel updates
+    const dot=document.getElementById('dot-'+i);
+    if(dot)dot.className='dot '+(state==='idle'?'idle':state==='error'?'error':state==='done'?'done':'running');
+    const lb=document.getElementById('label-'+i);
+    if(lb){lb.textContent=a.state_label;lb.className='tag '+(state==='idle'?'queued':state==='error'?'failed':state==='done'?'completed':'running');}
+    const el=document.getElementById('elapsed-'+i);
+    if(el){if(a.elapsed_seconds>0){const m=Math.floor(a.elapsed_seconds/60),s=a.elapsed_seconds%60;el.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}else el.textContent='--:--';}
+    const mg=document.getElementById('msg-'+i);if(mg)mg.textContent=a.task_message||'';
+    const p=procs[i]||{};
+    const pe=document.getElementById('pid-'+i);if(pe)pe.textContent=p.pid||'-';
+    const re=document.getElementById('rss-'+i);if(re)re.textContent=p.rss_mb?p.rss_mb+'MB':'-';
+    const ob=document.getElementById('out-'+i);
+    if(ob){if(a.streaming_output){ob.style.display='block';ob.textContent=a.streaming_output;ob.scrollTop=ob.scrollHeight;}else ob.style.display='none';}
+    const tb=document.getElementById('think-'+i);
+    if(tb){if(a.thinking){tb.textContent=a.thinking;tb.scrollTop=tb.scrollHeight;}else tb.textContent=state==='idle'?'Waiting...':'Thinking...';}
+  });
+
+  // Model info — per agent
+  const mc=document.getElementById('modelContent');
+  mc.innerHTML=models.map((m,i)=>{
+    const name=agents[i]?agents[i].name:'Agent';
+    const ctxUsed=m.current_context_tokens||0,ctxMax=m.context_window||0;
+    const pct=ctxMax>0?Math.min(100,Math.round(ctxUsed/ctxMax*100)):0;
+    const barColor=pct>80?'var(--red)':pct>50?'var(--orange)':'var(--green)';
+    return `<div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px"><span class="agent-badge ${AGENT_COLORS[i]}">${esc(name)}</span> ${esc(m.model||'—')}</div>
+      <div class="ctx-bar-wrap"><div class="ctx-bar-label"><span class="dim">Context</span><span class="mono" style="font-size:11px;color:var(--accent)">${ctxMax?fmtK(ctxUsed)+' / '+fmtK(ctxMax)+' ('+pct+'%)':'—'}</span></div><div class="ctx-bar-track"><div class="ctx-bar-fill" style="width:${pct}%;background:${barColor}"></div></div></div>
+      <div class="info-grid"><div><span class="label">In/Out</span></div><div><span class="value">${m.input_tokens?m.input_tokens.toLocaleString():'-'} / ${m.output_tokens?m.output_tokens.toLocaleString():'-'}</span></div><div><span class="label">Cache</span></div><div><span class="value">${m.cache_read_tokens?m.cache_read_tokens.toLocaleString():'-'}</span></div><div><span class="label">Cost</span></div><div><span class="value">${m.total_cost_usd?'$'+m.total_cost_usd.toFixed(4):'-'}</span></div><div><span class="label">CLI</span></div><div><span class="value">${m.claude_code_version||'-'}</span></div></div>
+    </div>`;
+  }).join('');
+
+  // Scheduled tasks — swimlane timeline
+  const allScheds=data.all_schedules||[];
+  const schedKey=JSON.stringify(allScheds);
+  if(schedKey!==lastSchedJson){
+    lastSchedJson=schedKey;
+    renderTimeline(agents, allScheds, data.system_crons||[]);
+  }
+
+  // Tasks — show agent name badge
+  const agentNames=data.agent_names||{};
+  document.getElementById('taskList').innerHTML=(data.recent_tasks||[]).map(t=>{
+    const dur=t.duration!=null?fmtDur(t.duration):'';
+    const aName=agentNames[t.agent_id]||'';
+    const aBadge=aName?`<span class="agent-badge ${t.agent_id==='1000002'?'a0':'a1'}">${esc(aName)}</span>`:'';
+    return`<li class="task-item"><span class="task-id">#${t.id.substring(0,6)}</span>${aBadge}<span class="tag ${t.status}">${t.status}</span><span class="task-msg">${esc(t.message)}</span><span class="task-dur">${dur}</span></li>`;
+  }).join('');
+}
+
+function fmtDur(s){return s<60?s+'s':Math.floor(s/60)+'m'+(s%60)+'s';}
+function fmtK(n){return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(0)+'K':String(n);}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// Store schedule data for click lookup (avoids escaping issues in onclick attrs)
+let schedDataMap={};
+
+function toggleSched(uid){
+  const det=document.getElementById('schedDetail');
+  if(expandedScheds.has(uid)){
+    expandedScheds.delete(uid);
+    det.innerHTML='';
+    // Remove active highlight
+    document.querySelectorAll('.tl-dot-active').forEach(e=>e.classList.remove('tl-dot-active'));
+    return;
+  }
+  expandedScheds.clear();
+  expandedScheds.add(uid);
+  const d=schedDataMap[uid];
+  if(d){
+    det.innerHTML=`<div class="sched-detail show"><div style="font-size:12px;font-weight:600;color:var(--cyan);margin-bottom:6px">${esc(d.name)} <span style="font-weight:400;color:var(--dim);font-size:10px">${esc(d.schedHuman)}</span></div>${esc(d.prompt||'(no prompt)')}</div>`;
+  }
+  // Highlight the clicked dot
+  document.querySelectorAll('.tl-dot-active').forEach(e=>e.classList.remove('tl-dot-active'));
+  const dot=document.querySelector(`[data-uid="${uid}"]`);
+  if(dot)dot.classList.add('tl-dot-active');
+}
+
+function renderTimeline(agents, allScheds, systemCrons){
+  const container=document.getElementById('schedTimeline');
+  const det=document.getElementById('schedDetail');
+  const TL_START=7, TL_END=23;
+  const hourToPercent=h=>{
+    const clamped=Math.max(TL_START,Math.min(TL_END,h));
+    return ((clamped-TL_START)/(TL_END-TL_START))*100;
+  };
+
+  let hasData=allScheds.some(s=>s.length>0);
+  if(!hasData){
+    if(systemCrons.length){
+      container.innerHTML=systemCrons.map(c=>`<div style="padding:4px 0;font-size:12px"><span style="color:var(--cyan);font-weight:600;margin-right:8px">${esc(c.schedule)}</span><span>${esc(c.name)}</span></div>`).join('');
+    } else {
+      container.innerHTML='<div class="dim" style="padding:8px 0">No scheduled tasks</div>';
+    }
+    det.innerHTML='';
+    return;
+  }
+
+  // Store data for click handler
+  schedDataMap={};
+
+  // Tick marks (shared)
+  let ticksHtml='';
+  for(let h=TL_START;h<=TL_END;h+=2){
+    ticksHtml+=`<div class="tl-tick" style="left:${hourToPercent(h)}%">${String(h).padStart(2,'0')}</div>`;
+  }
+
+  let html='';
+  agents.forEach((a,i)=>{
+    const scheds=allScheds[i]||[];
+    if(!scheds.length)return;
+    const aName=a.name||'agent'+i;
+    const aBadgeCls=AGENT_COLORS[i]||'a0';
+
+    // Sort by start_hour for label collision avoidance
+    const sorted=[...scheds.map((s,si)=>({...s,si}))].sort((a,b)=>(a.start_hour||0)-(b.start_hour||0));
+
+    let dotsHtml='';
+    let lastLabelEnd=-999; // track label right edge to avoid overlap
+    sorted.forEach(s=>{
+      const uid='sched-'+i+'-'+s.si;
+      const sh=s.start_hour, eh=s.end_hour;
+      if(sh==null)return;
+      const freq=s.freq||'daily';
+      const disabledCls=s.enabled===false?' disabled':'';
+      schedDataMap[uid]={name:s.name,schedHuman:s.schedule_human||s.schedule,prompt:s.prompt};
+
+      // Short name for label (truncate to avoid overlap)
+      const shortName=s.name.length>12?s.name.substring(0,11)+'…':s.name;
+
+      if(eh!=null && eh!==sh){
+        const leftPct=hourToPercent(sh), rightPct=hourToPercent(eh);
+        const midPct=(leftPct+rightPct)/2;
+        dotsHtml+=`<div class="tl-range${disabledCls}" style="left:${leftPct}%;width:${rightPct-leftPct}%"></div>`;
+        dotsHtml+=`<div class="tl-range-dot${disabledCls}" data-uid="${uid}" style="left:${leftPct}%" onclick="toggleSched('${uid}')"><div class="tl-tooltip">${esc(s.name)}<br>${esc(s.schedule_human||s.schedule)}</div></div>`;
+        // Label below range — always show, centered
+        dotsHtml+=`<div class="tl-label" style="left:${midPct}%">${esc(shortName)}</div>`;
+        lastLabelEnd=midPct+4;
+      } else {
+        const pct=hourToPercent(sh);
+        dotsHtml+=`<div class="tl-dot ${freq}${disabledCls}" data-uid="${uid}" style="left:${pct}%" onclick="toggleSched('${uid}')"><div class="tl-tooltip">${esc(s.name)}<br>${esc(s.schedule_human||s.schedule)}</div></div>`;
+        // Only show label if not overlapping with previous
+        if(pct-lastLabelEnd>3){
+          dotsHtml+=`<div class="tl-label" style="left:${pct}%">${esc(shortName)}</div>`;
+          lastLabelEnd=pct+4;
+        }
+      }
+    });
+
+    html+=`<div class="tl-lane">
+      <div class="tl-lane-label"><span class="agent-badge ${aBadgeCls}" style="font-size:10px;padding:1px 6px">${esc(aName)}</span></div>
+      <div class="tl-axis">${ticksHtml}<div class="tl-track"></div>${dotsHtml}</div>
+    </div>`;
+  });
+
+  html+=`<div class="tl-legend">
+    <div class="tl-legend-item"><div class="tl-legend-dot daily"></div>每天</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot weekday"></div>工作日</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot weekly"></div>每周</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot periodic"></div>周期</div>
+    <div class="tl-legend-item" style="margin-left:auto;color:var(--dim)">点击查看 Prompt</div>
+  </div>`;
+
+  container.innerHTML=html;
+  // Restore active highlight
+  if(expandedScheds.size){
+    const uid=[...expandedScheds][0];
+    const dot=document.querySelector(`[data-uid="${uid}"]`);
+    if(dot)dot.classList.add('tl-dot-active');
+  }
+}
+
+function spawnDecor(){
+  const aq=document.getElementById('aquarium');
+  [15,30,50,70,85].forEach((l,i)=>{const r=document.createElement('div');r.className='ray';r.style.cssText=`left:${l}%;transform:rotate(${10+i*5}deg);animation-delay:${i*1.5}s;height:${150+Math.random()*100}px;`;aq.appendChild(r);});
+  for(let i=0;i<10;i++){const b=document.createElement('div');b.className='bubble';const sz=2+Math.random()*6;b.style.cssText=`width:${sz}px;height:${sz}px;left:${5+Math.random()*90}%;bottom:${Math.random()*50}px;animation-duration:${6+Math.random()*8}s;animation-delay:${Math.random()*12}s;`;aq.appendChild(b);}
+  [1,3,5,7,93,95,97,99].forEach(left=>{for(let j=0;j<2;j++){const w=document.createElement('div');w.className='weed';w.style.cssText=`left:${left+Math.random()*2-1}%;height:${40+Math.random()*50}px;animation-delay:${-Math.random()*3}s;`;aq.appendChild(w);}});
+  ['🪸','🐚'].forEach((c,i)=>{const el=document.createElement('div');el.className='coral';el.textContent=c;el.style.left=[2,97][i]+'%';aq.appendChild(el);});
+}
+
+async function poll(){
+  try{const r=await fetch('/api/status');if(r.status===401){window.location='/dashboard/login';return;}updateUI(await r.json());}
+  catch{const l=document.getElementById('label-0');if(l)l.textContent='连接断开';}
+}
+
+spawnDecor();poll();setInterval(poll,1000);
+</script>
+</body>
+</html>

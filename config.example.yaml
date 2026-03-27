@@ -1,0 +1,64 @@
+# Single agent (backwards compatible):
+wecom:
+  name: "my-agent"  # optional label
+  corp_id: "your_corp_id"
+  agent_id: 1000002
+  secret: "your_agent_secret"
+  token: "callback_verification_token"
+  encoding_aes_key: "callback_encoding_aes_key_43chars"
+  mode: "relay"  # "relay" (poll AWS Lambda relay) or "callback" (direct webhook)
+  relay_url: "https://<api-id>.execute-api.ap-southeast-1.amazonaws.com"  # required for relay mode
+  relay_poll_interval_seconds: 5.0  # only used in relay mode
+  proxy: ""  # optional: SOCKS5 proxy for fixed outbound IP, e.g. "socks5://127.0.0.1:1080"
+
+# Multiple agents (each gets its own WeCom bot + executor):
+# wecom:
+#   - name: "coding"
+#     corp_id: "your_corp_id"
+#     agent_id: 1000002
+#     secret: "agent_secret_1"
+#     token: "token_1"
+#     encoding_aes_key: "aes_key_1"
+#     mode: "relay"
+#     relay_url: "https://relay-1.example.com"
+#   - name: "review"
+#     corp_id: "your_corp_id"
+#     agent_id: 1000003
+#     secret: "agent_secret_2"
+#     token: "token_2"
+#     encoding_aes_key: "aes_key_2"
+#     mode: "relay"
+#     relay_url: "https://relay-2.example.com"
+
+agent:
+  claude_command: "claude"
+  default_working_dir: "/path/to/your/projects"
+  allowed_tools: []
+  model: ""
+  permission_mode: ""
+  task_timeout_seconds: 600
+  max_output_length: 4000
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+storage:
+  db_path: "./remote_control.db"
+
+notifications:
+  progress_interval_seconds: 30
+
+# Persistent memory — task history recall + Claude self-managed MEMORY.md
+memory:
+  enabled: true                          # set false to disable memory system
+  raw_summary_max_chars: 500             # max chars from task output in raw entry
+  recent_context_limit: 5               # recent entries prepended to message
+  keyword_match_limit: 5                # keyword-matched entries prepended
+  max_context_chars: 2000               # max chars for context block
+
+# Dashboard — read-only web UI with lobster animation
+dashboard:
+  enabled: false                         # set true to enable
+  password: ""                           # required — login password
+  secret: "change-me-to-random-string"   # HMAC signing key for auth cookies

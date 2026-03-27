@@ -1,0 +1,18 @@
+# SAM CLI configuration for wecom-relay stack
+# Usage: cd relay/ && sam build && sam deploy
+
+version = 0.1
+
+[default.build.parameters]
+use_container = true
+
+[default.deploy.parameters]
+stack_name = "wecom-relay"
+region = "ap-southeast-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+parameter_overrides = [
+    "TtlDays=7",
+    "AgentConfigs=",
+]

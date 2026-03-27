@@ -1,0 +1,36 @@
+# Runtime config (generated per-deployment, never committed)
+config.yaml
+*.db
+*.log
+*.pid
+.mcp.json
+_media/
+
+# Per-agent runtime configs (seeded by deploy.sh, managed by agents)
+.system-prompt.md
+.dashboard-workstations.json
+.schedules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# Development artifacts
+*.png
+*.jpg
+.playwright-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
