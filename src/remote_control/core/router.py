@@ -29,8 +29,9 @@ Scheduling: Just describe it naturally, e.g. "every day at 9am run the tests"
 
 
 class CommandRouter:
-    def __init__(self, executor: "Executor"):
+    def __init__(self, executor: "Executor", profile_manager=None):
         self._executor = executor
+        self._profile_manager = profile_manager
 
     async def route(self, user_id: str, message: str) -> None:
         """Route a message to the appropriate handler."""
@@ -58,8 +59,25 @@ class CommandRouter:
         handler = handlers.get(cmd)
         if handler:
             await handler(user_id, arg)
-        else:
-            await self._executor.enqueue_task(user_id, stripped)
+            return
+
+        # Check custom commands from profile (cannot override built-in commands)
+        if cmd.startswith("/") and self._profile_manager is not None:
+            try:
+                profile = self._profile_manager.get_profile()
+                cmd_name = cmd[1:]  # strip leading /
+                custom = profile.custom_commands.get(cmd_name)
+                if custom:
+                    prompt = custom.prompt
+                    if arg:
+                        prompt = f"{prompt} {arg}"
+                    logger.info("Custom command /%s expanded for user %s", cmd_name, user_id)
+                    await self._executor.enqueue_task(user_id, prompt)
+                    return
+            except Exception:
+                logger.debug("Failed to check profile custom commands, falling through")
+
+        await self._executor.enqueue_task(user_id, stripped)
 
     async def _handle_status(self, user_id: str, arg: str | None) -> None:
         store = self._executor.store
@@ -204,4 +222,17 @@ class CommandRouter:
         )
 
     async def _handle_help(self, user_id: str, arg: str | None) -> None:
-        await self._executor.notifier.send_reply(user_id, HELP_TEXT)
+        text = HELP_TEXT
+        # Append custom commands from profile if available
+        if self._profile_manager is not None:
+            try:
+                profile = self._profile_manager.get_profile()
+                if profile.custom_commands:
+                    lines = ["\n\nCustom commands:"]
+                    for name, cmd_def in profile.custom_commands.items():
+                        desc = cmd_def.description or cmd_def.prompt[:40]
+                        lines.append(f"/{name} - {desc}")
+                    text += "\n".join(lines)
+            except Exception:
+                logger.debug("Failed to load profile custom commands for help")
+        await self._executor.notifier.send_reply(user_id, text)

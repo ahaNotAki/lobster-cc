@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from remote_control.config import AppConfig
@@ -17,11 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class Executor:
-    def __init__(self, config: AppConfig, store: Store, notifier: Notifier, runner: AgentRunner):
+    def __init__(
+        self, config: AppConfig, store: Store, notifier: Notifier, runner: AgentRunner,
+        profile_manager=None,
+    ):
         self.config = config
         self.store = store
         self.notifier = notifier
         self.runner = runner
+        self.profile_manager = profile_manager
         self._queue_event = asyncio.Event()
         self._task: asyncio.Task | None = None
         # Shared streaming buffer for dashboard API
@@ -82,19 +87,35 @@ class Executor:
         Long-term knowledge lives in Claude's native MEMORY.md (auto-read by Claude Code).
         This only injects relevant task history from SQLite for contextual recall.
         Best-effort — failures are logged but never break task execution.
+
+        Uses profile memory prefs if profile_manager is available, otherwise falls
+        back to config.memory values (backward compatible).
         """
         if not self.config.memory.enabled:
             return message
 
         try:
             mc = self.config.memory
+            # Override memory limits from profile if available
+            keyword_limit = mc.keyword_match_limit
+            recent_limit = mc.recent_context_limit
+            max_chars = mc.max_context_chars
+            if self.profile_manager is not None:
+                try:
+                    profile = self.profile_manager.get_profile()
+                    keyword_limit = profile.memory.keyword_match_limit
+                    recent_limit = profile.memory.recent_context_limit
+                    max_chars = profile.memory.max_context_chars
+                except Exception:
+                    logger.debug("Failed to load profile memory prefs, using config defaults")
+
             keywords = [k for k in extract_keywords(message).split(",") if k]
             keyword_matches = self.store.get_keyword_matched_memories(
-                user_id, keywords, limit=mc.keyword_match_limit,
-                exclude_recent=mc.recent_context_limit,
+                user_id, keywords, limit=keyword_limit,
+                exclude_recent=recent_limit,
             )
-            recent = self.store.get_recent_memories(user_id, limit=mc.recent_context_limit)
-            context = build_context_block(recent, keyword_matches, max_chars=mc.max_context_chars)
+            recent = self.store.get_recent_memories(user_id, limit=recent_limit)
+            context = build_context_block(recent, keyword_matches, max_chars=max_chars)
             if context:
                 return f"{context}\n\n{message}"
         except Exception:
@@ -119,7 +140,10 @@ class Executor:
             logger.warning("Failed to save raw memory for task %s", task_id, exc_info=True)
 
     def _inject_wecom_hint(self, user_id: str, message: str) -> str:
-        """Load per-agent system prompt from .system-prompt.md, fallback to default."""
+        """Load per-agent system prompt from .system-prompt.md, fallback to default.
+
+        Additionally injects profile-aware hints if profile_manager is available.
+        """
         working_dir = self.config.agent.default_working_dir
         prompt_path = Path(working_dir) / ".system-prompt.md"
 
@@ -134,6 +158,25 @@ class Executor:
 
         if not hint:
             hint = self._default_system_hint(user_id)
+
+        # Append profile-aware hints if available
+        if self.profile_manager is not None:
+            try:
+                profile = self.profile_manager.get_profile()
+                style = profile.output_style
+                hint += (
+                    f"\nYour preferred output style: {style.format}. "
+                    f"Max length: {style.max_message_length} chars. "
+                    f"Language: {style.language}."
+                )
+                hint += (
+                    "\nYou have agent self-configuration tools: "
+                    "get_agent_config, set_agent_config, list_agent_config, reset_agent_config. "
+                    "Use set_agent_config to persist user preferences "
+                    "(output style, model, notification frequency)."
+                )
+            except Exception:
+                logger.debug("Failed to load profile for hint injection, skipping")
 
         return f"[System: {hint}]\n\n{message}"
 
@@ -186,11 +229,28 @@ class Executor:
         try:
             augmented_message = self._inject_memory(user_id, task.message)
             augmented_message = self._inject_wecom_hint(user_id, augmented_message)
+
+            # Check profile for task-type model override
+            model_override = None
+            if self.profile_manager is not None:
+                try:
+                    profile = self.profile_manager.get_profile()
+                    for override in profile.model_selection.task_type_overrides:
+                        if re.search(override.pattern, task.message, re.IGNORECASE):
+                            model_override = override.model
+                            logger.info(
+                                "Profile model override: pattern=%r matched, using model=%s",
+                                override.pattern, override.model,
+                            )
+                            break
+                except Exception:
+                    logger.debug("Failed to check profile model overrides, using default")
+
             result: RunResult = await asyncio.wait_for(
                 self.runner.run(
                     augmented_message, session_id, is_resume, session.working_dir,
                     on_output=stream.on_output, on_thinking=_on_thinking,
-                    task_id=task_id,
+                    task_id=task_id, model_override=model_override,
                 ),
                 timeout=self.config.agent.task_timeout_seconds,
             )

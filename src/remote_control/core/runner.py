@@ -40,7 +40,10 @@ class AgentRunner:
     def is_running(self) -> bool:
         return self._running
 
-    def build_command(self, message: str, session_id: str, is_resume: bool, working_dir: str) -> list[str]:
+    def build_command(
+        self, message: str, session_id: str, is_resume: bool, working_dir: str,
+        model_override: str | None = None,
+    ) -> list[str]:
         cmd = [
             self._config.claude_command,
             "-p",
@@ -54,8 +57,9 @@ class AgentRunner:
         else:
             cmd += ["--session-id", session_id]
 
-        if self._config.model:
-            cmd += ["--model", self._config.model]
+        model = model_override or self._config.model
+        if model:
+            cmd += ["--model", model]
         if self._config.allowed_tools:
             cmd += ["--allowedTools"] + self._config.allowed_tools
 
@@ -73,6 +77,7 @@ class AgentRunner:
         on_output: OutputCallback | None = None,
         on_thinking: OutputCallback | None = None,
         task_id: str = "",
+        model_override: str | None = None,
     ) -> RunResult:
         """Run Claude Code CLI and return the result.
 
@@ -82,9 +87,10 @@ class AgentRunner:
         Args:
             on_output: Optional callback invoked with each text output chunk.
             on_thinking: Optional callback invoked with each thinking chunk.
+            model_override: Optional model to use instead of config default.
         """
         self._current_task_id = task_id
-        result = await self._run_once(message, session_id, is_resume, working_dir, on_output, on_thinking)
+        result = await self._run_once(message, session_id, is_resume, working_dir, on_output, on_thinking, model_override=model_override)
 
         # Check if we hit a session mismatch error and should retry with the opposite mode
         if result.exit_code != 0 and self._is_session_error(result.error):
@@ -93,7 +99,7 @@ class AgentRunner:
             logger.info(
                 "Session mismatch for %s, retrying with %s", session_id[:8], mode_label,
             )
-            result = await self._run_once(message, session_id, flipped, working_dir, on_output, on_thinking)
+            result = await self._run_once(message, session_id, flipped, working_dir, on_output, on_thinking, model_override=model_override)
 
         self._current_task_id = ""
         return result
@@ -106,13 +112,14 @@ class AgentRunner:
         working_dir: str,
         on_output: OutputCallback | None = None,
         on_thinking: OutputCallback | None = None,
+        model_override: str | None = None,
     ) -> RunResult:
         """Execute a single CLI invocation, streaming stdout via callback.
 
         Parses stream-json output to separate thinking blocks from text output,
         and captures model info from init/result events.
         """
-        cmd = self.build_command(message, session_id, is_resume, working_dir)
+        cmd = self.build_command(message, session_id, is_resume, working_dir, model_override=model_override)
         mode = "--resume" if is_resume else "--session-id"
         msg_preview = message[:80].replace("\n", " ")
         logger.info("Running: %s %s %s... msg=%s (cwd=%s)",

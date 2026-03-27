@@ -10,6 +10,7 @@ from aiohttp import web
 from remote_control.config import AppConfig, WeComConfig
 from remote_control.core.executor import Executor
 from remote_control.core.notifier import Notifier
+from remote_control.core.profile import ProfileManager
 from remote_control.core.router import CommandRouter
 from remote_control.core.runner import AgentRunner
 from remote_control.core.store import ScopedStore, Store
@@ -77,14 +78,14 @@ async def _download_and_save_media(
 
 
 def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
-    """Write .mcp.json in the working directory so Claude Code picks up the wecom tools."""
+    """Write .mcp.json in the working directory so Claude Code picks up the wecom and profile tools."""
     working_dir = Path(config.agent.default_working_dir)
     mcp_path = working_dir / ".mcp.json"
 
     # Find the python executable (same one running this server)
     python_bin = sys.executable
 
-    new_entry = {
+    wecom_entry = {
         "command": python_bin,
         "args": ["-m", "remote_control.mcp.wecom_server"],
         "env": {
@@ -92,6 +93,15 @@ def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
             "WECOM_AGENT_ID": str(wecom_config.agent_id),
             "WECOM_SECRET": wecom_config.secret,
             "WECOM_PROXY": wecom_config.proxy or "",
+        },
+    }
+
+    profile_entry = {
+        "command": python_bin,
+        "args": ["-m", "remote_control.mcp.profile_server"],
+        "env": {
+            "AGENT_WORKING_DIR": str(working_dir),
+            "AGENT_ID": str(wecom_config.agent_id),
         },
     }
 
@@ -104,7 +114,8 @@ def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
             pass
 
     servers = existing.get("mcpServers", {})
-    servers["wecom"] = new_entry
+    servers["wecom"] = wecom_entry
+    servers["agent-profile"] = profile_entry
     existing["mcpServers"] = servers
 
     mcp_path.write_text(json.dumps(existing, indent=2) + "\n")
@@ -150,8 +161,9 @@ def create_app(config: AppConfig) -> web.Application:
             watchdog._notifier = notifier
         scoped_store = ScopedStore(store, str(wecom_config.agent_id))
         runner = AgentRunner(agent_config.agent, watchdog=watchdog)
-        executor = Executor(agent_config, scoped_store, notifier, runner)
-        router = CommandRouter(executor)
+        profile_manager = ProfileManager(agent_working_dir, str(wecom_config.agent_id))
+        executor = Executor(agent_config, scoped_store, notifier, runner, profile_manager=profile_manager)
+        router = CommandRouter(executor, profile_manager=profile_manager)
 
         # Create message handler with media download support
         def _make_handler(r, api, wd):

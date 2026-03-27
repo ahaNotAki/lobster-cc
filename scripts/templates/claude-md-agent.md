@@ -10,7 +10,16 @@ You can edit these files to adjust your own behavior:
 | `.dashboard-workstations.json` | Dashboard workstation config | Add new workstations and keywords for new task types |
 | `.schedules/*.yaml` | Scheduled task config | Modify prompts, enable/disable tasks |
 | `MEMORY.md` | Long-term knowledge | User preferences, key decisions, project state |
+| `.agent-profile.yaml` | Agent preferences | Output style, model selection, custom commands, notification prefs |
 | This file `CLAUDE.md` | Operating manual | Maintain the "Custom Rules" section below |
+
+## Self-Configuration Tools
+
+You have MCP tools for managing your preferences:
+- `get_agent_config` — view current settings
+- `set_agent_config` — change a setting (with rationale for audit)
+- `list_agent_config` — show all settings
+- `reset_agent_config` — revert to defaults
 
 ## Output Rules / 输出规则
 

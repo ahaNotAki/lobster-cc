@@ -1,0 +1,26 @@
+version: "1.0"
+agent_id: ""
+updated_at: ""
+
+output_style:
+  language: "auto"
+  format: "balanced"
+  max_message_length: 1500
+  code_block_handling: "inline"
+
+notification:
+  streaming_interval_seconds: 10.0
+  progress_interval_seconds: 30.0
+  notify_on_completion: false
+  notify_on_error: true
+
+model_selection:
+  default_model: ""
+  task_type_overrides: []
+
+memory:
+  keyword_match_limit: 5
+  recent_context_limit: 5
+  max_context_chars: 2000
+
+custom_commands: {}

@@ -97,6 +97,8 @@ rsync -avz --delete \
     --exclude 'remote_control.log' \
     --exclude 'config.yaml' \
     --exclude '.dashboard-workstations.json' \
+    --exclude '.agent-profile.yaml' \
+    --exclude '.agent-profile-history/' \
     "$LOCAL_DIR/" "$SSH_TARGET:$REMOTE_DIR/"
 
 # --- Seed per-agent config files (never overwrite existing) ---
@@ -127,6 +129,11 @@ for d in dirs:
         if [ ! -f "\$WD/CLAUDE.md" ] && [ -f "$REMOTE_DIR/scripts/templates/claude-md-agent.md" ]; then
             cp "$REMOTE_DIR/scripts/templates/claude-md-agent.md" "\$WD/CLAUDE.md"
             echo "  Seeded CLAUDE.md to \$WD/"
+        fi
+
+        # Seed .agent-profile.default.yaml (always update — these are factory defaults)
+        if [ -f "$REMOTE_DIR/scripts/templates/.agent-profile.default.yaml" ]; then
+            cp "$REMOTE_DIR/scripts/templates/.agent-profile.default.yaml" "\$WD/.agent-profile.default.yaml"
         fi
 
         # Ensure .schedules/ directory exists

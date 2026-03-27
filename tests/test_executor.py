@@ -152,7 +152,7 @@ async def test_execute_task_timeout(executor, store, mock_runner, mock_notifier,
     app_config.agent.task_timeout_seconds = 0.1  # very short timeout
     session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
 
-    async def slow_run(message, session_id, is_resume, working_dir, on_output=None, on_thinking=None, task_id=""):
+    async def slow_run(message, session_id, is_resume, working_dir, on_output=None, on_thinking=None, task_id="", model_override=None):
         await asyncio.sleep(10)  # will be cancelled by timeout
         return RunResult(exit_code=0, output="never reached")
 

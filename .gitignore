@@ -10,6 +10,8 @@ _media/
 .system-prompt.md
 .dashboard-workstations.json
 .schedules/
+.agent-profile.yaml
+.agent-profile-history/
 
 # Python
 __pycache__/
@@ -34,3 +36,4 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+OPENSOURCE_PLAN.md
