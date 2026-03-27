@@ -236,7 +236,9 @@ class Executor:
                 try:
                     profile = self.profile_manager.get_profile()
                     for override in profile.model_selection.task_type_overrides:
-                        if re.search(override.pattern, task.message, re.IGNORECASE):
+                        if len(override.pattern) > 200:
+                            continue  # skip overly long patterns
+                        if re.search(override.pattern, task.message[:500], re.IGNORECASE):
                             model_override = override.model
                             logger.info(
                                 "Profile model override: pattern=%r matched, using model=%s",

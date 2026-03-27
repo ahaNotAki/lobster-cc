@@ -262,9 +262,10 @@ class ProfileManager:
     def _save_snapshot(self, profile: AgentProfile, rationale: str) -> None:
         """Save timestamped snapshot to history dir."""
         self.history_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%Y-%m-%d_%H%M%S_%f")
         snapshot = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now.isoformat(),
             "agent_id": self._agent_id,
             "rationale": rationale,
             "profile": profile.model_dump(),
