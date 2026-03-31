@@ -9,6 +9,7 @@ _media/
 # Per-agent runtime configs (seeded by deploy.sh, managed by agents)
 .system-prompt.md
 .dashboard-workstations.json
+.dashboard-tabs.json
 .schedules/
 .agent-profile.yaml
 .agent-profile-history/

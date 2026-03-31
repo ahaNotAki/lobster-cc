@@ -6,11 +6,13 @@ import hashlib
 import hmac
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 from aiohttp import web
 
 from remote_control.dashboard.status import get_agent_status
+from remote_control.dashboard.tabs import load_tab_configs, load_tab_data
 
 logger = logging.getLogger(__name__)
 
@@ -167,14 +169,74 @@ def register_dashboard_routes(
         first["all_models"] = [a.get("model", {}) for a in all_agents_data]
         first["all_lobsters"] = [a.get("lobster", {}) for a in all_agents_data]
         first["all_schedules"] = [a.get("schedule_configs", []) for a in all_agents_data]
+        first["all_tabs"] = [a.get("tabs", []) for a in all_agents_data]
         first["agent_names"] = agent_names
         return web.json_response(first)
+
+    async def api_task_detail(request: web.Request) -> web.Response:
+        if not _check_auth(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        task_id = request.match_info["task_id"]
+        task = store.get_task(task_id)
+        if not task:
+            return web.json_response({"error": "task not found"}, status=404)
+
+        duration = None
+        if task.started_at and task.finished_at:
+            try:
+                s = datetime.fromisoformat(task.started_at)
+                e = datetime.fromisoformat(task.finished_at)
+                duration = round((e - s).total_seconds())
+            except (ValueError, TypeError):
+                pass
+
+        return web.json_response({
+            "id": task.id,
+            "status": task.status.value if hasattr(task.status, "value") else task.status,
+            "message": task.message,
+            "output": task.output or "",
+            "error": task.error or "",
+            "created_at": task.created_at,
+            "started_at": task.started_at or "",
+            "finished_at": task.finished_at or "",
+            "duration": duration,
+        })
+
+    def _find_agent_working_dir(agent_id: str) -> str | None:
+        """Find working_dir for an agent by its agent_id."""
+        agent_list = agents or []
+        for ag in agent_list:
+            wc = ag.get("wecom_config")
+            aid = str(wc.agent_id) if wc and hasattr(wc, "agent_id") else ag.get("label", "")
+            if aid == agent_id:
+                return ag.get("working_dir", working_dir)
+        return None
+
+    async def api_tab(request: web.Request) -> web.Response:
+        if not _check_auth(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        agent_id = request.match_info["agent_id"]
+        tab_id = request.match_info["tab_id"]
+
+        ag_working_dir = _find_agent_working_dir(agent_id)
+        if not ag_working_dir:
+            return web.json_response({"error": "agent not found"}, status=404)
+
+        tabs = load_tab_configs(ag_working_dir)
+        tab = next((t for t in tabs if t["id"] == tab_id), None)
+        if not tab:
+            return web.json_response({"error": "tab not found"}, status=404)
+
+        data = load_tab_data(ag_working_dir, tab)
+        return web.json_response(data)
 
     # Only GET routes + one POST for login form
     app.router.add_get("/dashboard", dashboard_page)
     app.router.add_get("/dashboard/login", login_page)
     app.router.add_post("/dashboard/login", login_submit)
     app.router.add_get("/api/status", api_status)
+    app.router.add_get("/api/task/{task_id}", api_task_detail)
+    app.router.add_get("/api/tab/{agent_id}/{tab_id}", api_tab)
 
 
 _LOGIN_HTML = """<!DOCTYPE html>

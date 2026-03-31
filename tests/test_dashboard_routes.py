@@ -364,3 +364,165 @@ class TestLockout:
         )
         assert resp.status == 302
         assert "Locked" in resp.headers["Location"] or "locked" in resp.headers["Location"].lower()
+
+
+# ---------------------------------------------------------------------------
+# 7. Task detail API
+# ---------------------------------------------------------------------------
+
+class TestApiTaskDetail:
+    @pytest.mark.asyncio
+    async def test_task_detail_api(self, client: TestClient, mock_store):
+        """GET /api/task/{task_id} returns full task data with auth."""
+        from remote_control.core.models import Task, TaskStatus
+
+        task = Task(
+            id="abc123",
+            user_id="u1",
+            session_id="s1",
+            message="do something important",
+            status=TaskStatus.COMPLETED,
+            output="task output here",
+            error="",
+            created_at="2026-01-01T00:00:00+00:00",
+            started_at="2026-01-01T00:00:05+00:00",
+            finished_at="2026-01-01T00:00:35+00:00",
+        )
+        mock_store.get_task.return_value = task
+
+        fake_time = 1_700_000_000.0
+        token = _auth_cookie(fake_time)
+        with patch.object(routes.time, "time", return_value=fake_time + 100):
+            client.session.cookie_jar.update_cookies(
+                {_COOKIE_NAME: token},
+                response_url=client.make_url("/"),
+            )
+            resp = await client.get("/api/task/abc123")
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["id"] == "abc123"
+        assert data["status"] == "completed"
+        assert data["message"] == "do something important"
+        assert data["output"] == "task output here"
+        assert data["error"] == ""
+        assert data["created_at"] == "2026-01-01T00:00:00+00:00"
+        assert data["started_at"] == "2026-01-01T00:00:05+00:00"
+        assert data["finished_at"] == "2026-01-01T00:00:35+00:00"
+        assert data["duration"] == 30
+
+    @pytest.mark.asyncio
+    async def test_task_detail_api_unauthorized(self, client: TestClient):
+        """GET /api/task/{task_id} returns 401 without auth."""
+        resp = await client.get("/api/task/abc123")
+        assert resp.status == 401
+        data = await resp.json()
+        assert data["error"] == "unauthorized"
+
+    @pytest.mark.asyncio
+    async def test_task_detail_api_not_found(self, client: TestClient, mock_store):
+        """GET /api/task/{task_id} returns 404 for unknown task."""
+        mock_store.get_task.return_value = None
+
+        fake_time = 1_700_000_000.0
+        token = _auth_cookie(fake_time)
+        with patch.object(routes.time, "time", return_value=fake_time + 100):
+            client.session.cookie_jar.update_cookies(
+                {_COOKIE_NAME: token},
+                response_url=client.make_url("/"),
+            )
+            resp = await client.get("/api/task/nonexistent")
+
+        assert resp.status == 404
+        data = await resp.json()
+        assert data["error"] == "task not found"
+
+
+# ---------------------------------------------------------------------------
+# 8. Tab data API
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def tab_client(mock_store, mock_runner, tmp_path):
+    """Client with agents configured for tab API testing."""
+    import json
+
+    # Create tab config and data files in a working dir
+    wd = tmp_path / "lobster1"
+    wd.mkdir()
+    tabs = [
+        {"id": "stocks", "label": "Stocks", "type": "data", "source": "stocks.json"},
+    ]
+    (wd / ".dashboard-tabs.json").write_text(json.dumps(tabs))
+    (wd / "stocks.json").write_text(json.dumps([{"ticker": "AAPL", "price": 150}]))
+
+    # Build app with agents list that has a working_dir
+    app = web.Application()
+
+    # Mock executor
+    executor = MagicMock()
+    executor.runner = mock_runner
+    executor.dashboard_streaming = {}
+    executor.store = mock_store
+
+    # Mock wecom_config with agent_id attribute
+    wecom_config = MagicMock()
+    wecom_config.agent_id = "1000002"
+
+    agents = [{"label": "TestBot", "executor": executor,
+               "working_dir": str(wd), "wecom_config": wecom_config}]
+
+    register_dashboard_routes(
+        app, password=PASSWORD, secret=SECRET, store=mock_store,
+        agents=agents, working_dir=str(tmp_path),
+    )
+
+    server = TestServer(app)
+    cli = TestClient(server)
+    await cli.start_server()
+    routes._failed_attempts.clear()
+    yield cli
+    await cli.close()
+    routes._failed_attempts.clear()
+
+
+class TestTabApi:
+    @pytest.mark.asyncio
+    async def test_tab_api_endpoint(self, tab_client: TestClient):
+        """GET /api/tab/{agent_id}/{tab_id} returns tab data."""
+        fake_time = 1_700_000_000.0
+        token = _auth_cookie(fake_time)
+        with patch.object(routes.time, "time", return_value=fake_time + 100):
+            tab_client.session.cookie_jar.update_cookies(
+                {_COOKIE_NAME: token},
+                response_url=tab_client.make_url("/"),
+            )
+            resp = await tab_client.get("/api/tab/1000002/stocks")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["template"] == "table"
+        assert data["data"][0]["ticker"] == "AAPL"
+
+    @pytest.mark.asyncio
+    async def test_tab_api_unauthorized(self, tab_client: TestClient):
+        """Returns 401 without auth."""
+        resp = await tab_client.get("/api/tab/1000002/stocks")
+        assert resp.status == 401
+        data = await resp.json()
+        assert data["error"] == "unauthorized"
+
+    @pytest.mark.asyncio
+    async def test_tab_api_not_found(self, tab_client: TestClient):
+        """Unknown tab_id returns 404."""
+        fake_time = 1_700_000_000.0
+        token = _auth_cookie(fake_time)
+        with patch.object(routes.time, "time", return_value=fake_time + 100):
+            tab_client.session.cookie_jar.update_cookies(
+                {_COOKIE_NAME: token},
+                response_url=tab_client.make_url("/"),
+            )
+            resp = await tab_client.get("/api/tab/1000002/nonexistent")
+        assert resp.status == 404
+        data = await resp.json()
+        assert data["error"] == "tab not found"

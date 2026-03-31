@@ -998,6 +998,8 @@ Config model: `DashboardConfig` in `config.py` with fields `enabled` (bool), `pa
 | `/dashboard/login` | GET | Login form |
 | `/dashboard/login` | POST | Login submission |
 | `/api/status` | GET | JSON API — full system status |
+| `/api/task/{task_id}` | GET | JSON API — full task detail (output, error, timestamps, duration) |
+| `/api/tab/{agent_id}/{tab_id}` | GET | JSON API — custom tab data (table, key-value, chart, or HTML) |
 
 ### API Response (`/api/status`)
 
@@ -1030,6 +1032,8 @@ The status endpoint returns a comprehensive JSON payload assembled by `dashboard
   "recent_tasks": [...],
   "cron_jobs": [...],
   "system_crons": [...],
+  "tabs": [{"id": "stocks", "label": "Stocks", "type": "data", "source": "stocks.json"}],
+  "all_tabs": [[...], [...]],  // per-agent tab configs
   "lobster": {"name": "🦞", "emoji": "🦞"},
   "workstations": [{"id": "coding", "label": "CODE", "icon": "💻"}, ...],
   "timestamp": "2026-03-22T..."
@@ -1052,6 +1056,29 @@ Tasks are classified into "workstations" based on keyword matching against the t
 ```
 
 The last workstation with empty `keywords` acts as the fallback ("general"). Config is cached by file mtime for efficient reloads.
+
+### Custom Dashboard Tabs
+
+Agents can create custom data views in the dashboard by placing a `.dashboard-tabs.json` file in their working directory. The tab system is implemented in `dashboard/tabs.py`.
+
+**Config schema** (`.dashboard-tabs.json`):
+```json
+[
+  {"id": "stocks", "label": "Portfolio", "type": "data", "source": "data/stocks.json"},
+  {"id": "trend", "label": "Trend", "type": "chart", "source": "data/trend.json",
+   "chart_options": {"chart_type": "line", "title": "Price Trend"}},
+  {"id": "report", "label": "Report", "type": "html", "source": "reports/daily.html"}
+]
+```
+
+**Tab types:**
+- `data` — JSON file. Arrays render as tables, objects render as key-value pairs. Override with `"template": "table"` or `"key-value"`.
+- `chart` — JSON file with `{labels: [...], datasets: [{label, data, color}]}`. Supports `line` and `bar` chart types. Rendered via native Canvas 2D API (no external libs).
+- `html` — HTML file rendered in a sandboxed iframe.
+
+**Security:** Source file paths are resolved via `os.path.realpath()` and must reside within the agent's `working_dir`. Path traversal (`../../`) and absolute paths outside the working dir are rejected. Files >1MB are rejected.
+
+**UI:** The dashboard shows a horizontal tab bar below the aquarium. Home tab (always present) shows the default content. Custom tabs are loaded on click via `/api/tab/{agent_id}/{tab_id}`. Tab definitions refresh on each status poll; tab data only loads on click with a manual refresh button.
 
 ### System Crontab Integration
 

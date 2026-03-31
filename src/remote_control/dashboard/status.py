@@ -198,7 +198,7 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
         recent.append({
             "id": td["id"],
             "status": td["status"],
-            "message": _clean_message(td["message"])[:100],
+            "message": _clean_message(td["message"])[:200],
             "created_at": td["created_at"],
             "duration": duration,
             "agent_id": td.get("agent_id", ""),
@@ -226,6 +226,10 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
     system_crons = _get_system_crontab()
     schedule_configs = load_schedule_configs(working_dir)
 
+    # Custom dashboard tabs
+    from remote_control.dashboard.tabs import load_tab_configs
+    tabs = load_tab_configs(working_dir)
+
     return {
         "agent": agent_info,
         "process": process_info,
@@ -233,6 +237,7 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
         "recent_tasks": recent,
         "system_crons": system_crons,
         "schedule_configs": schedule_configs,
+        "tabs": tabs,
         "lobster": lobster_config,
         "workstations": [{"id": ws["id"], "label": ws.get("label", ws["id"]),
                           "icon": ws.get("icon", "⚙️")} for ws in workstations],

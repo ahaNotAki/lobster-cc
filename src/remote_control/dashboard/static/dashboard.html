@@ -82,10 +82,24 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 .stream-box.output{color:var(--green)}
 .stream-box.thinking{color:var(--purple);background:rgba(30,15,40,0.4)}
 .task-list,.cron-list{list-style:none}
-.task-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.task-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;min-height:44px;transition:background 0.15s}
+.task-item:hover{background:rgba(255,255,255,0.03);border-radius:4px}
+.task-item:active{background:rgba(255,255,255,0.05)}
 .task-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .task-dur{color:var(--dim);font-size:11px;white-space:nowrap}
 .task-id{font-family:'SF Mono',monospace;font-size:10px;color:var(--dim);min-width:50px}
+.task-status-emoji{font-size:14px;flex-shrink:0;width:20px;text-align:center}
+.task-agent-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.task-detail{display:none;padding:10px 14px;margin:-1px 0 4px 0;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:0 0 8px 8px;font-size:12px;line-height:1.7;animation:slideDown 0.2s ease-out}
+.task-detail.show{display:block}
+.task-detail .td-label{color:var(--dim);font-size:11px;margin-right:6px}
+.task-detail .td-row{margin-bottom:4px;word-break:break-all}
+.task-detail .td-id{font-family:'SF Mono',monospace;font-size:10px;color:var(--dim)}
+.task-detail .td-output{background:rgba(0,0,0,0.3);border-radius:6px;padding:8px 10px;font-family:'SF Mono',monospace;font-size:11px;line-height:1.6;max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--green);margin:6px 0}
+.task-detail .td-output.full{max-height:400px}
+.task-detail .td-error{color:var(--red)}
+.task-detail .td-btn{display:inline-block;padding:4px 10px;border-radius:4px;background:rgba(96,165,250,0.15);color:var(--accent);font-size:11px;cursor:pointer;border:none;margin-top:4px}
+.task-detail .td-btn:hover{background:rgba(96,165,250,0.25)}
 /* Timeline swimlane */
 .tl-lane{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)}
 .tl-lane:last-child{border-bottom:none}
@@ -128,6 +142,32 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 .ctx-bar-track{height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden}
 .ctx-bar-fill{height:100%;border-radius:3px;transition:width 0.5s}
 
+/* TAB BAR */
+.tab-bar{display:flex;gap:0;overflow-x:auto;scrollbar-width:thin;border-bottom:1px solid var(--border);margin-bottom:10px;-webkit-overflow-scrolling:touch}
+.tab-btn{padding:8px 16px;font-size:12px;font-weight:600;color:var(--dim);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color 0.2s,border-color 0.2s;display:flex;align-items:center;gap:5px}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-btn .tab-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.tab-content{min-height:100px}
+.tab-content .tab-loading{text-align:center;padding:30px;color:var(--dim);font-size:13px}
+.tab-content .tab-error{padding:16px;color:var(--red);font-size:13px}
+.tab-refresh-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--dim);font-size:11px;cursor:pointer;transition:color 0.2s,border-color 0.2s;margin-bottom:10px}
+.tab-refresh-btn:hover{color:var(--accent);border-color:var(--accent)}
+/* Tab table */
+.tab-table{width:100%;border-collapse:collapse;font-size:12px}
+.tab-table th{text-align:left;padding:6px 10px;color:var(--dim);font-weight:600;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+.tab-table td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.03)}
+.tab-table tr:hover td{background:rgba(255,255,255,0.02)}
+/* Tab key-value */
+.tab-kv{font-size:12px}
+.tab-kv-row{display:flex;gap:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.tab-kv-key{color:var(--dim);min-width:120px;font-weight:600}
+.tab-kv-val{color:var(--text);font-family:'SF Mono',monospace;word-break:break-all}
+.tab-kv-nested{margin-left:16px;border-left:2px solid var(--border);padding-left:10px;margin-top:4px}
+/* Tab chart */
+.tab-chart-wrap{position:relative;width:100%;height:300px}
+.tab-chart-wrap canvas{width:100%!important;height:100%!important}
+
 @media(max-width:600px){.aquarium{height:300px}.lobster{font-size:34px}.ws-icon{font-size:20px}.ws-desk{width:38px;height:18px}}
 </style>
 </head>
@@ -138,6 +178,16 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 </div>
 
 <div class="panel">
+  <!-- Tab navigation -->
+  <div class="tab-bar" id="tabBar">
+    <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">&#127968; Home</button>
+  </div>
+
+  <!-- Tab content area (shown when a non-home tab is selected) -->
+  <div id="tabContent" style="display:none"></div>
+
+  <!-- Home content (default view) -->
+  <div id="homeContent">
   <!-- Agent panels (dynamically generated) -->
   <div id="agentPanels"></div>
 
@@ -159,14 +209,18 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
     <h2>📋 Recent Tasks</h2>
     <ul class="task-list" id="taskList"></ul>
   </div>
+  </div><!-- /homeContent -->
 </div>
 
 <script>
 const AGENT_COLORS = ['a0','a1','a2','a3'];
+const AGENT_DOT_COLORS = ['#60a5fa','#c084fc','#22d3ee','#fb923c'];
 let wsPositions={}, wsRendered=false;
 let lobsters={}; // agent_name -> {el, pos, dir, state, swimTimer}
 const expandedScheds=new Set(); // track which schedule items are expanded
 let lastSchedJson=''; // skip re-render when unchanged
+const expandedTasks=new Set(); // track which task items are expanded
+let lastTaskJson=''; // skip re-render when task data unchanged
 
 function renderWorkstations(wsList){
   if(wsRendered)return;
@@ -319,19 +373,101 @@ function updateUI(data){
     renderTimeline(agents, allScheds, data.system_crons||[]);
   }
 
-  // Tasks — show agent name badge
+  // Custom tabs
+  updateTabBar(data.all_tabs||[], agents, data.agent_names||{});
+
+  // Tasks — compact with expandable details
   const agentNames=data.agent_names||{};
-  document.getElementById('taskList').innerHTML=(data.recent_tasks||[]).map(t=>{
-    const dur=t.duration!=null?fmtDur(t.duration):'';
-    const aName=agentNames[t.agent_id]||'';
-    const aBadge=aName?`<span class="agent-badge ${t.agent_id==='1000002'?'a0':'a1'}">${esc(aName)}</span>`:'';
-    return`<li class="task-item"><span class="task-id">#${t.id.substring(0,6)}</span>${aBadge}<span class="tag ${t.status}">${t.status}</span><span class="task-msg">${esc(t.message)}</span><span class="task-dur">${dur}</span></li>`;
-  }).join('');
+  const multiAgent=Object.keys(agentNames).length>1;
+  const taskJson=JSON.stringify(data.recent_tasks||[]);
+  if(taskJson!==lastTaskJson){
+    lastTaskJson=taskJson;
+    renderTaskList(data.recent_tasks||[], agentNames, multiAgent);
+  }
 }
 
 function fmtDur(s){return s<60?s+'s':Math.floor(s/60)+'m'+(s%60)+'s';}
 function fmtK(n){return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(0)+'K':String(n);}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function statusEmoji(s){return{completed:'\u2705',failed:'\u274C',cancelled:'\uD83D\uDEAB',running:'\u25B6\uFE0F',queued:'\u23F3'}[s]||s;}
+function agentDotIdx(agentId,agentNames){const keys=Object.keys(agentNames);const idx=keys.indexOf(String(agentId));return idx>=0?idx:0;}
+
+function renderTaskList(tasks, agentNames, multiAgent){
+  const ul=document.getElementById('taskList');
+  ul.innerHTML='';
+  tasks.forEach(t=>{
+    const dur=t.duration!=null?fmtDur(t.duration):'';
+    const dotColor=multiAgent?AGENT_DOT_COLORS[agentDotIdx(t.agent_id,agentNames)]||AGENT_DOT_COLORS[0]:'';
+    // Row
+    const li=document.createElement('li');
+    li.className='task-item';
+    li.onclick=()=>toggleTask(t.id);
+    let rowHtml='';
+    if(multiAgent)rowHtml+=`<span class="task-agent-dot" style="background:${dotColor}"></span>`;
+    rowHtml+=`<span class="task-status-emoji">${statusEmoji(t.status)}</span>`;
+    rowHtml+=`<span class="task-msg">${esc(t.message)}</span>`;
+    rowHtml+=`<span class="task-dur">${dur}</span>`;
+    li.innerHTML=rowHtml;
+    ul.appendChild(li);
+    // Detail panel
+    const det=document.createElement('div');
+    det.className='task-detail'+(expandedTasks.has(t.id)?' show':'');
+    det.id='td-'+t.id;
+    det.innerHTML=`<div class="td-row">${esc(t.message)}</div><div class="td-row"><span class="td-id">#${t.id}</span></div><div class="td-row"><span class="td-label">Created:</span>${esc(t.created_at||'')}</div><div class="td-row" id="td-ts-${t.id}"></div><div id="td-out-${t.id}"></div><div id="td-err-${t.id}"></div>`;
+    ul.appendChild(det);
+    // Restore expanded state: if expanded, fetch full data
+    if(expandedTasks.has(t.id)){fetchTaskDetail(t.id);}
+  });
+}
+
+function toggleTask(tid){
+  if(expandedTasks.has(tid)){
+    expandedTasks.delete(tid);
+    const d=document.getElementById('td-'+tid);
+    if(d)d.classList.remove('show');
+  }else{
+    expandedTasks.add(tid);
+    const d=document.getElementById('td-'+tid);
+    if(d)d.classList.add('show');
+    fetchTaskDetail(tid);
+  }
+}
+
+async function fetchTaskDetail(tid){
+  try{
+    const r=await fetch('/api/task/'+tid);
+    if(!r.ok)return;
+    const d=await r.json();
+    // Timestamps
+    const tsEl=document.getElementById('td-ts-'+tid);
+    if(tsEl){
+      let ts='';
+      if(d.started_at)ts+=`<span class="td-label">Started:</span>${esc(d.started_at)}<br>`;
+      if(d.finished_at)ts+=`<span class="td-label">Finished:</span>${esc(d.finished_at)}<br>`;
+      if(d.duration!=null)ts+=`<span class="td-label">Duration:</span>${fmtDur(d.duration)}`;
+      tsEl.innerHTML=ts;
+    }
+    // Output
+    const outEl=document.getElementById('td-out-'+tid);
+    if(outEl&&d.output){
+      const preview=d.output.substring(0,500);
+      const hasMore=d.output.length>500;
+      outEl.innerHTML=`<div class="td-output" id="td-outbox-${tid}">${esc(preview)}${hasMore?'...':''}</div>${hasMore?`<button class="td-btn" onclick="event.stopPropagation();showFullOutput('${tid}')">View Full</button>`:''}`;
+      outEl._fullOutput=d.output;
+    }
+    // Error
+    const errEl=document.getElementById('td-err-'+tid);
+    if(errEl&&d.error){errEl.innerHTML=`<div class="td-row td-error"><span class="td-label">Error:</span>${esc(d.error)}</div>`;}
+  }catch(e){}
+}
+
+function showFullOutput(tid){
+  const outEl=document.getElementById('td-out-'+tid);
+  if(!outEl||!outEl._fullOutput)return;
+  const box=document.getElementById('td-outbox-'+tid);
+  if(box){box.textContent=outEl._fullOutput;box.classList.add('full');}
+  const btn=outEl.querySelector('.td-btn');if(btn)btn.remove();
+}
 
 // Store schedule data for click lookup (avoids escaping issues in onclick attrs)
 let schedDataMap={};
@@ -449,6 +585,192 @@ function renderTimeline(agents, allScheds, systemCrons){
     const dot=document.querySelector(`[data-uid="${uid}"]`);
     if(dot)dot.classList.add('tl-dot-active');
   }
+}
+
+// ===== CUSTOM TABS =====
+let currentTab='home';
+let knownTabs=[];  // [{agent_id, agent_idx, ...tab_config}]
+let agentIdMap={};  // idx -> agent_id
+
+function switchTab(tabId){
+  currentTab=tabId;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tabId));
+  const home=document.getElementById('homeContent');
+  const tc=document.getElementById('tabContent');
+  if(tabId==='home'){home.style.display='';tc.style.display='none';return;}
+  home.style.display='none';tc.style.display='';
+  tc.innerHTML='<div class="tab-loading">Loading...</div>';
+  const tab=knownTabs.find(t=>t._uid===tabId);
+  if(!tab){tc.innerHTML='<div class="tab-error">Tab not found</div>';return;}
+  fetchTabData(tab);
+}
+
+async function fetchTabData(tab){
+  const tc=document.getElementById('tabContent');
+  try{
+    const r=await fetch(`/api/tab/${tab.agent_id}/${tab.id}`);
+    if(r.status===401){window.location='/dashboard/login';return;}
+    const data=await r.json();
+    if(data.error){tc.innerHTML=`<div class="card"><div class="tab-error">${esc(data.error)}</div></div>`;return;}
+    let html=`<div class="card"><h2>${esc(tab.label)} <button class="tab-refresh-btn" onclick="fetchTabData(knownTabs.find(t=>t._uid==='${tab._uid}'))">Refresh</button></h2>`;
+    if(data.html!=null)html+=renderTabHtml(data.html);
+    else if(data.chart_type)html+=renderTabChart(data,tab._uid);
+    else if(data.template==='table')html+=renderTabTable(data.data);
+    else if(data.template==='key-value')html+=renderTabKV(data.data);
+    else html+=`<div class="tab-error">Unknown template</div>`;
+    html+='</div>';
+    tc.innerHTML=html;
+    // If chart, draw it after DOM update
+    if(data.chart_type)requestAnimationFrame(()=>drawChart(tab._uid,data));
+  }catch(e){tc.innerHTML=`<div class="card"><div class="tab-error">Network error</div></div>`;}
+}
+
+function renderTabTable(data){
+  if(!Array.isArray(data)||!data.length)return'<div class="dim">No data</div>';
+  const keys=Object.keys(data[0]);
+  let h='<table class="tab-table"><thead><tr>';
+  keys.forEach(k=>{h+=`<th>${esc(k)}</th>`;});
+  h+='</tr></thead><tbody>';
+  data.forEach(row=>{h+='<tr>';keys.forEach(k=>{h+=`<td>${esc(String(row[k]!=null?row[k]:''))}</td>`;});h+='</tr>';});
+  h+='</tbody></table>';return h;
+}
+
+function renderTabKV(data,indent){
+  if(!data||typeof data!=='object')return`<div class="dim">${esc(String(data))}</div>`;
+  const cls=indent?'tab-kv tab-kv-nested':'tab-kv';
+  let h=`<div class="${cls}">`;
+  Object.entries(data).forEach(([k,v])=>{
+    if(v&&typeof v==='object'&&!Array.isArray(v)){
+      h+=`<div class="tab-kv-row"><span class="tab-kv-key">${esc(k)}</span></div>`;
+      h+=renderTabKV(v,true);
+    }else{
+      h+=`<div class="tab-kv-row"><span class="tab-kv-key">${esc(k)}</span><span class="tab-kv-val">${esc(String(v!=null?v:''))}</span></div>`;
+    }
+  });
+  h+='</div>';return h;
+}
+
+function renderTabHtml(html){
+  return`<iframe srcdoc="${html.replace(/"/g,'&quot;')}" sandbox="allow-scripts" style="width:100%;height:500px;border:none;border-radius:6px;background:#fff"></iframe>`;
+}
+
+function renderTabChart(data,uid){
+  return`<div class="tab-chart-wrap"><canvas id="chart-${uid}" width="800" height="300"></canvas></div>`;
+}
+
+function drawChart(uid,data){
+  const canvas=document.getElementById('chart-'+uid);
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width*dpr;canvas.height=300*dpr;
+  canvas.style.width=rect.width+'px';canvas.style.height='300px';
+  ctx.scale(dpr,dpr);
+  const W=rect.width,H=300;
+  const pad={top:40,right:20,bottom:40,left:55};
+  const cW=W-pad.left-pad.right,cH=H-pad.top-pad.bottom;
+  const labels=data.labels||[];
+  const datasets=data.datasets||[];
+  const isBar=data.chart_type==='bar';
+
+  // Find min/max
+  let allVals=[];datasets.forEach(ds=>(ds.data||[]).forEach(v=>allVals.push(v)));
+  let minV=Math.min(0,...allVals),maxV=Math.max(1,...allVals);
+  const range=maxV-minV||1;
+  const niceStep=Math.pow(10,Math.floor(Math.log10(range)))||1;
+  minV=Math.floor(minV/niceStep)*niceStep;
+  maxV=Math.ceil(maxV/niceStep)*niceStep;
+  const yRange=maxV-minV||1;
+
+  const toX=i=>pad.left+(i/(Math.max(1,labels.length-1)))*cW;
+  const toY=v=>pad.top+cH-(((v-minV)/yRange)*cH);
+
+  // Background
+  ctx.fillStyle='rgba(0,0,0,0.15)';ctx.fillRect(0,0,W,H);
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1;
+  const gridSteps=5;
+  for(let i=0;i<=gridSteps;i++){
+    const y=pad.top+(cH/gridSteps)*i;
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+    const val=maxV-((maxV-minV)/gridSteps)*i;
+    ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='10px SF Mono,monospace';ctx.textAlign='right';
+    ctx.fillText(val%1===0?String(val):val.toFixed(1),pad.left-6,y+3);
+  }
+
+  // X-axis labels
+  ctx.fillStyle='rgba(255,255,255,0.4)';ctx.textAlign='center';ctx.font='10px SF Mono,monospace';
+  const skipX=Math.ceil(labels.length/12);
+  labels.forEach((l,i)=>{if(i%skipX===0){ctx.fillText(l,toX(i),H-pad.bottom+16);}});
+
+  // Title
+  if(data.title){ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='bold 13px Inter,sans-serif';ctx.textAlign='center';ctx.fillText(data.title,W/2,20);}
+
+  // Datasets
+  const barGroupW=cW/Math.max(1,labels.length);
+  const barW=barGroupW/(datasets.length+1);
+  datasets.forEach((ds,di)=>{
+    const color=ds.color||['#4ade80','#60a5fa','#fb923c','#c084fc','#22d3ee'][di%5];
+    const vals=ds.data||[];
+    if(isBar){
+      ctx.fillStyle=color+'99';
+      vals.forEach((v,i)=>{
+        const x=toX(i)-barGroupW/2+barW*di+barW*0.15;
+        const y=toY(v);const bh=toY(minV)-y;
+        ctx.fillRect(x,y,barW*0.7,bh);
+      });
+    }else{
+      // Line
+      ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+      vals.forEach((v,i)=>{const x=toX(i),y=toY(v);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+      ctx.stroke();
+      // Dots
+      ctx.fillStyle=color;
+      vals.forEach((v,i)=>{const x=toX(i),y=toY(v);ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();});
+    }
+  });
+
+  // Legend
+  if(datasets.length>1){
+    let lx=pad.left;const ly=H-8;
+    datasets.forEach((ds,di)=>{
+      const color=ds.color||['#4ade80','#60a5fa','#fb923c','#c084fc','#22d3ee'][di%5];
+      ctx.fillStyle=color;ctx.fillRect(lx,ly-6,10,6);
+      ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='10px Inter,sans-serif';ctx.textAlign='left';
+      ctx.fillText(ds.label||'Series '+(di+1),lx+14,ly);
+      lx+=ctx.measureText(ds.label||'Series '+(di+1)).width+24;
+    });
+  }
+}
+
+function updateTabBar(allTabs, agents, agentNames){
+  // Build flat list with agent info
+  const newTabs=[];
+  (allTabs||[]).forEach((agentTabs,i)=>{
+    const aid=Object.keys(agentNames||{})[i]||'';
+    (agentTabs||[]).forEach(t=>{
+      newTabs.push({...t, agent_id:aid, agent_idx:i, _uid:'tab-'+aid+'-'+t.id});
+    });
+  });
+
+  // Check if tabs changed
+  const newIds=newTabs.map(t=>t._uid).join(',');
+  const oldIds=knownTabs.map(t=>t._uid).join(',');
+  if(newIds===oldIds)return;
+  knownTabs=newTabs;
+
+  // Rebuild tab bar
+  const bar=document.getElementById('tabBar');
+  bar.innerHTML='<button class="tab-btn'+(currentTab==='home'?' active':'')+'" data-tab="home" onclick="switchTab(\'home\')">&#127968; Home</button>';
+  newTabs.forEach(t=>{
+    const dotColor=AGENT_COLORS[t.agent_idx]||'a0';
+    bar.innerHTML+=`<button class="tab-btn${currentTab===t._uid?' active':''}" data-tab="${t._uid}" onclick="switchTab('${t._uid}')"><span class="tab-dot ${dotColor}" style="background:${dotColor==='a0'?'var(--accent)':'var(--purple)'}"></span>${esc(t.label)}</button>`;
+  });
+
+  // If current tab was removed, switch to home
+  if(currentTab!=='home'&&!newTabs.find(t=>t._uid===currentTab)){switchTab('home');}
 }
 
 function spawnDecor(){

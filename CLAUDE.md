@@ -72,9 +72,10 @@ WeCom → [AWS relay] → aiohttp server → Command Router → Executor → Cla
 - `mcp/wecom_server.py` — Standalone MCP server exposing WeCom message/image/file sending as tools for Claude Code
 - `mcp/profile_server.py` — Standalone MCP server exposing agent self-configuration tools (`get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config`)
 - `config.py` — Pydantic-validated YAML config loading (supports single or multiple WeCom agents)
-- `dashboard/routes.py` — Read-only dashboard web UI with password auth, IP lockout
-- `dashboard/status.py` — Agent status assembly, workstation config loading, schedule config loading (prompt + working_dir from `.schedules/*.yaml`), cron parsing
-- `dashboard/static/dashboard.html` — Lobster aquarium WebUI with multi-agent support
+- `dashboard/routes.py` — Read-only dashboard web UI with password auth, IP lockout, task detail API (`/api/task/{task_id}`), tab data API (`/api/tab/{agent_id}/{tab_id}`)
+- `dashboard/status.py` — Agent status assembly, workstation config loading, schedule config loading (prompt + working_dir from `.schedules/*.yaml`), cron parsing, tab config loading
+- `dashboard/tabs.py` — Custom tab config loading (`.dashboard-tabs.json`) and tab data loading with path security. Supports data (table/key-value), chart (line/bar), and HTML tab types.
+- `dashboard/static/dashboard.html` — Lobster aquarium WebUI with multi-agent support, expandable task details, custom tabs with table/chart/HTML renderers
 - `server.py` — aiohttp app wiring (routes, per-agent component setup, lifecycle hooks)
 - `main.py` — CLI entry point (subcommands: `init` for interactive config generation, default starts server)
 - `cli_init.py` — Interactive `config.yaml` generator with WeCom credential validation

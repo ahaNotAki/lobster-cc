@@ -519,6 +519,26 @@ class TestGetAgentStatus:
         # Should be parseable as ISO datetime
         datetime.fromisoformat(result["timestamp"])
 
+    def test_recent_tasks_message_length(self, tmp_path):
+        """Recent task messages are truncated to 200 chars (not 100)."""
+        long_msg = "A" * 300
+        tasks = [
+            Task(
+                id="long1",
+                message=long_msg,
+                status=TaskStatus.COMPLETED,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            ),
+        ]
+        store = _make_store(recent_tasks=tasks)
+        runner = _make_runner()
+
+        result = get_agent_status(store, runner, working_dir=str(tmp_path))
+
+        msg = result["recent_tasks"][0]["message"]
+        assert len(msg) == 200
+        assert msg == "A" * 200
+
     def test_running_task_cleans_message(self, tmp_path):
         """Running task message is cleaned of system prefixes."""
         task = Task(

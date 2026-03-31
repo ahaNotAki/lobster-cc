@@ -97,6 +97,7 @@ rsync -avz --delete \
     --exclude 'remote_control.log' \
     --exclude 'config.yaml' \
     --exclude '.dashboard-workstations.json' \
+    --exclude '.dashboard-tabs.json' \
     --exclude '.agent-profile.yaml' \
     --exclude '.agent-profile-history/' \
     "$LOCAL_DIR/" "$SSH_TARGET:$REMOTE_DIR/"
