@@ -32,6 +32,7 @@ class AgentConfig(BaseModel):
     max_output_length: int = 4000
     watchdog_interval_seconds: int = 60
     watchdog_timeout_seconds: int = 1200  # 20 minutes
+    first_response_timeout_seconds: int = 90
 
 
 class ServerConfig(BaseModel):

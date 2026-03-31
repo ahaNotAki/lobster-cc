@@ -304,3 +304,67 @@ def test_build_command_with_model():
     cmd = runner.build_command("task", "s1", is_resume=False, working_dir="/tmp")
     idx = cmd.index("--model")
     assert cmd[idx + 1] == "opus"
+
+
+# --- First response timeout tests ---
+
+
+@pytest.mark.asyncio
+async def test_first_response_timeout():
+    """When process produces no output within first_response_timeout, it should be killed and return error."""
+    # Use a long-running command that doesn't write to stdout
+    config = AgentConfig(claude_command="sleep", first_response_timeout_seconds=1)
+    runner = AgentRunner(config)
+
+    # Mock build_command to return a sleep command
+    runner.build_command = lambda *a, **k: ["sleep", "10"]
+
+    result = await runner._run_once(
+        "test", "sess", False, "/tmp",
+    )
+
+    assert result.exit_code != 0
+    assert "First response timeout" in result.error
+    assert "90s" in result.error or "1s" in result.error  # depending on config
+    assert not runner.is_running
+
+
+@pytest.mark.asyncio
+async def test_first_response_timeout_retry():
+    """run() should retry once after first-response timeout."""
+    from unittest.mock import AsyncMock
+
+    runner = AgentRunner(AgentConfig(first_response_timeout_seconds=1))
+
+    timeout_result = RunResult(
+        exit_code=1,
+        output="",
+        error="First response timeout (1s) — Claude CLI may be stuck on MCP initialization"
+    )
+    ok_result = RunResult(exit_code=0, output="Success!", error="")
+
+    runner._run_once = AsyncMock(side_effect=[timeout_result, ok_result])
+
+    result = await runner.run("hi", "sess-1", is_resume=True, working_dir="/tmp")
+
+    assert result.exit_code == 0
+    assert result.output == "Success!"
+    assert runner._run_once.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_first_response_normal():
+    """Normal flow: when process responds quickly, no timeout should occur."""
+    config = AgentConfig(claude_command="echo", first_response_timeout_seconds=2)
+    runner = AgentRunner(config)
+
+    result = await runner.run(
+        "hello fast",
+        "test-session",
+        is_resume=False,
+        working_dir="/tmp",
+    )
+
+    assert result.exit_code == 0
+    assert "hello fast" in result.output
+    assert "timeout" not in result.error.lower()

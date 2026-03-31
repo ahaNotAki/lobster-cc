@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable, Awaitable
 
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Error substrings that indicate a session ID mismatch
 _SESSION_NOT_FOUND = "no conversation found"
 _SESSION_IN_USE = "already in use"
+
+# Error substring for first response timeout
+_FIRST_RESPONSE_TIMEOUT = "First response timeout"
 
 # Type for the streaming output callback
 OutputCallback = Callable[[str], Awaitable[None]]
@@ -84,6 +88,8 @@ class AgentRunner:
         Uses automatic retry on session ID mismatch: if --resume fails because
         the session doesn't exist, retries with --session-id (and vice versa).
 
+        Also retries once on first response timeout.
+
         Args:
             on_output: Optional callback invoked with each text output chunk.
             on_thinking: Optional callback invoked with each thinking chunk.
@@ -100,6 +106,11 @@ class AgentRunner:
                 "Session mismatch for %s, retrying with %s", session_id[:8], mode_label,
             )
             result = await self._run_once(message, session_id, flipped, working_dir, on_output, on_thinking, model_override=model_override)
+
+        # Check if we hit a first response timeout and should retry
+        elif result.exit_code != 0 and _FIRST_RESPONSE_TIMEOUT in result.error:
+            logger.warning("First response timeout, retrying...")
+            result = await self._run_once(message, session_id, is_resume, working_dir, on_output, on_thinking, model_override=model_override)
 
         self._current_task_id = ""
         return result
@@ -133,6 +144,8 @@ class AgentRunner:
             limit=10 * 1024 * 1024,  # 10MB — stream-json can emit large single-line events
         )
         self._running = True
+        spawn_time = time.monotonic()
+        logger.info("Claude CLI spawned (pid=%d, wd=%s)", self._process.pid, working_dir)
 
         if self._watchdog and self._process.pid and self._current_task_id:
             self._watchdog.register(self._process.pid, self._current_task_id)
@@ -144,10 +157,59 @@ class AgentRunner:
             # Track cumulative lengths to extract only new deltas
             seen_text_len: int = 0
             seen_thinking_len: int = 0
+            first_output_received = False
+            init_received_time: float | None = None
+            first_assistant_time: float | None = None
 
             async def _read_stdout():
-                nonlocal final_result_text, seen_text_len, seen_thinking_len
+                nonlocal final_result_text, seen_text_len, seen_thinking_len, first_output_received
+                nonlocal init_received_time, first_assistant_time
                 assert self._process and self._process.stdout
+
+                # Wait for first line with timeout
+                try:
+                    line = await asyncio.wait_for(
+                        self._process.stdout.readline(),
+                        timeout=self._config.first_response_timeout_seconds
+                    )
+                except asyncio.TimeoutError:
+                    timeout = self._config.first_response_timeout_seconds
+                    logger.warning("First response timeout after %ds (pid=%d), killing process", timeout, self._process.pid)
+                    # Kill the process
+                    try:
+                        self._process.kill()
+                        await self._process.wait()
+                    except Exception as e:
+                        logger.error("Failed to kill process: %s", e)
+                    return  # Exit the read loop
+
+                first_output_received = True
+
+                # Process the first line
+                if line:
+                    raw = line.decode("utf-8", errors="replace").strip()
+                    if raw:
+                        try:
+                            event = json.loads(raw)
+                            event_type = event.get("type", "")
+
+                            if event_type == "system" and event.get("subtype") == "init":
+                                init_received_time = time.monotonic()
+                                init_delay = init_received_time - spawn_time
+                                self.model_info["model"] = event.get("model", "")
+                                self.model_info["session_id"] = event.get("session_id", "")
+                                self.model_info["claude_code_version"] = event.get("claude_code_version", "")
+                                self.model_info["mcp_servers"] = event.get("mcp_servers", [])
+                                mcp_status = [s.get("name","?") for s in self.model_info["mcp_servers"]]
+                                logger.info("Claude CLI ready (pid=%d, init_delay=%.1fs, mcp=%s)",
+                                            self._process.pid, init_delay, mcp_status)
+                        except json.JSONDecodeError:
+                            # Non-JSON output
+                            raw_lines.append(raw + "\n")
+                            if on_output:
+                                await on_output(raw + "\n")
+
+                # Continue reading remaining lines (no timeout)
                 while True:
                     line = await self._process.stdout.readline()
                     if not line:
@@ -168,15 +230,24 @@ class AgentRunner:
                     event_type = event.get("type", "")
 
                     if event_type == "system" and event.get("subtype") == "init":
-                        self.model_info["model"] = event.get("model", "")
-                        self.model_info["session_id"] = event.get("session_id", "")
-                        self.model_info["claude_code_version"] = event.get("claude_code_version", "")
-                        self.model_info["mcp_servers"] = event.get("mcp_servers", [])
-                        mcp_status = [(s.get("name","?"), s.get("status","?")) for s in self.model_info["mcp_servers"]]
-                        logger.info("CLI init: model=%s, cli=%s, mcp=%s",
-                                    self.model_info["model"], self.model_info["claude_code_version"], mcp_status)
+                        # Already handled above if first line, but handle here for safety
+                        if init_received_time is None:
+                            init_received_time = time.monotonic()
+                            init_delay = init_received_time - spawn_time
+                            self.model_info["model"] = event.get("model", "")
+                            self.model_info["session_id"] = event.get("session_id", "")
+                            self.model_info["claude_code_version"] = event.get("claude_code_version", "")
+                            self.model_info["mcp_servers"] = event.get("mcp_servers", [])
+                            mcp_status = [s.get("name","?") for s in self.model_info["mcp_servers"]]
+                            logger.info("Claude CLI ready (pid=%d, init_delay=%.1fs, mcp=%s)",
+                                        self._process.pid, init_delay, mcp_status)
 
                     elif event_type == "assistant":
+                        # Log first assistant output
+                        if first_assistant_time is None:
+                            first_assistant_time = time.monotonic()
+                            delay = first_assistant_time - spawn_time
+                            logger.info("First output received (pid=%d, delay=%.1fs)", self._process.pid, delay)
                         # Track token usage from each assistant message
                         message_obj = event.get("message", {})
                         usage = message_obj.get("usage", {})
@@ -253,6 +324,14 @@ class AgentRunner:
 
             await asyncio.gather(_read_stdout(), _read_stderr())
             await self._process.wait()
+
+            # Check if we hit first response timeout
+            if not first_output_received:
+                timeout_msg = (
+                    f"First response timeout ({self._config.first_response_timeout_seconds}s) — "
+                    "Claude CLI may be stuck on MCP initialization"
+                )
+                return RunResult(exit_code=1, output="", error=timeout_msg)
 
             output = final_result_text.strip() or "".join(raw_lines).strip()
             error = "".join(stderr_parts).strip()
