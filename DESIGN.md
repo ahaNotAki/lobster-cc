@@ -597,10 +597,11 @@ remote_control/
 │       │   └── message_source.py # MessageSource ABC + CallbackSource, RelayPollingSource
 │       ├── dashboard/
 │       │   ├── __init__.py
-│       │   ├── routes.py         # Auth (cookie HMAC), login page, /api/status endpoint
-│       │   ├── status.py         # Agent status assembly, workstation classification, cron parsing
+│       │   ├── routes.py         # Auth (cookie HMAC), login page, /api/status + task + tab endpoints
+│       │   ├── status.py         # Agent status assembly, workstation classification, cron parsing, tab config loading
+│       │   ├── tabs.py           # Custom tab config/data loading (table/key-value/chart/html renderers)
 │       │   └── static/
-│       │       └── dashboard.html  # Single-page dashboard UI
+│       │       └── dashboard.html  # Single-page dashboard UI with expandable tasks and custom tabs
 │       ├── mcp/
 │       │   ├── wecom_server.py  # Standalone MCP server (WeCom sending tools)
 │       │   └── profile_server.py  # Standalone MCP server (agent profile tools)
@@ -619,6 +620,10 @@ remote_control/
 ├── relay/
 │   ├── lambda_function.py       # AWS Lambda handler (callback + fetch)
 │   └── README.md                # Deployed AWS resource inventory
+├── scripts/
+│   ├── setup.sh                 # Unified setup (relay + optional proxy)
+│   ├── setup-relay.sh           # Relay-only setup (Lambda + API Gateway + DynamoDB)
+│   └── setup-proxy.sh           # EC2 proxy setup (separate, older script)
 └── tests/
     ├── __init__.py
     ├── conftest.py
@@ -994,12 +999,14 @@ Config model: `DashboardConfig` in `config.py` with fields `enabled` (bool), `pa
 
 | Route | Method | Description |
 |-------|--------|-------------|
+| Route | Method | Description |
+|-------|--------|-------------|
 | `/dashboard` | GET | Main dashboard page (static HTML) |
 | `/dashboard/login` | GET | Login form |
 | `/dashboard/login` | POST | Login submission |
 | `/api/status` | GET | JSON API — full system status |
-| `/api/task/{task_id}` | GET | JSON API — full task detail (output, error, timestamps, duration) |
-| `/api/tab/{agent_id}/{tab_id}` | GET | JSON API — custom tab data (table, key-value, chart, or HTML) |
+| `/api/task/{task_id}` | GET | JSON API — full task detail (output, error, timestamps, duration) for expandable task UI |
+| `/api/tab/{agent_id}/{tab_id}` | GET | JSON API — custom tab data (table, key-value, chart, or HTML) loaded on demand |
 
 ### API Response (`/api/status`)
 
@@ -1078,7 +1085,11 @@ Agents can create custom data views in the dashboard by placing a `.dashboard-ta
 
 **Security:** Source file paths are resolved via `os.path.realpath()` and must reside within the agent's `working_dir`. Path traversal (`../../`) and absolute paths outside the working dir are rejected. Files >1MB are rejected.
 
-**UI:** The dashboard shows a horizontal tab bar below the aquarium. Home tab (always present) shows the default content. Custom tabs are loaded on click via `/api/tab/{agent_id}/{tab_id}`. Tab definitions refresh on each status poll; tab data only loads on click with a manual refresh button.
+**UI:** The dashboard shows a horizontal tab bar below the aquarium, grouped by agent name with visual separators. Home tab (always present) shows the default content. Custom tabs are loaded on click via `/api/tab/{agent_id}/{tab_id}`. Tab definitions refresh on each status poll; tab data only loads on click with a manual refresh button.
+
+### Expandable Task Details
+
+The Recent Tasks section in the dashboard now supports expandable task items. Tasks show a status emoji (✓/✗/⏹/⏳), truncated message, and duration. Clicking a task fetches full details via `/api/task/{task_id}` — including full output/error text, precise timestamps (created/started/finished), and computed duration. The expansion is animated via CSS (`slideDown` keyframe). Task data is cached per task ID to avoid redundant fetches on collapse/re-expand.
 
 ### System Crontab Integration
 

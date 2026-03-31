@@ -64,6 +64,7 @@ This is the part that feels like magic. Each agent has a set of config files it 
 | `.system-prompt.md` | Its own personality and rules | Adjusts output style, adds domain-specific rules as it learns |
 | `.agent-profile.yaml` | Preferences & behavior tuning | Adjusts output style, model selection, custom commands, notification prefs via MCP tools |
 | `.dashboard-workstations.json` | Dashboard work categories | Adds new workstation icons when it discovers new task types |
+| `.dashboard-tabs.json` | Custom dashboard tabs | Creates data views (tables, charts, HTML) for portfolio tracking, reports, analytics |
 | `.schedules/*.yaml` | Scheduled tasks | Creates, modifies, or disables recurring tasks |
 | `CLAUDE.md` | Its operating manual | Maintains a "custom rules" section with learned conventions |
 
@@ -76,7 +77,8 @@ Day 1:   "check AAPL stock price"        → generic response
 Day 3:   "check AAPL"                    → remembers your format preference, adds 📈 workstation
 Day 5:   agent tunes its own profile     → concise output style, Chinese language, faster streaming
 Day 7:   agent has a morning briefing schedule, custom prompt for financial analysis,
-         profile-driven model selection, and MEMORY.md full of your portfolio context
+         profile-driven model selection, portfolio tracking tab in dashboard,
+         and MEMORY.md full of your portfolio context
 ```
 
 ### Memory that persists
@@ -95,8 +97,9 @@ The **Lobster Dashboard** gives you a live window into Claude's work:
 - Streaming output as Claude types
 - Thinking/reasoning blocks
 - Token usage, context window, cost
-- Task history and status
+- Task history with expandable details
 - Per-agent lobster with workstation animations
+- Custom tabs for agent-created data views (tables, charts, HTML reports)
 
 The dashboard polls every second and shows exactly what Claude is doing right now — including its internal reasoning.
 
@@ -209,6 +212,11 @@ One command sets up everything — relay (Lambda + API Gateway + DynamoDB) and o
 ```
 
 Fully idempotent — re-running skips existing resources. Only requires AWS CLI.
+
+You can also run the relay setup separately if needed:
+```bash
+./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+```
 
 See [relay/README.md](relay/README.md) for SAM alternative or resource details.
 
