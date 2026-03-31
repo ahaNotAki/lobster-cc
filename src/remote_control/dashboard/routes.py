@@ -170,6 +170,7 @@ def register_dashboard_routes(
         first["all_lobsters"] = [a.get("lobster", {}) for a in all_agents_data]
         first["all_schedules"] = [a.get("schedule_configs", []) for a in all_agents_data]
         first["all_tabs"] = [a.get("tabs", []) for a in all_agents_data]
+        first["all_workstations"] = [a.get("workstations", []) for a in all_agents_data]
         first["agent_names"] = agent_names
         return web.json_response(first)
 

@@ -305,7 +305,14 @@ function updateUI(data){
   const agents=data.agents||[data.agent];
   const procs=data.all_processes||[data.process];
   const models=data.all_models||[data.model||{}];
-  if(data.workstations)renderWorkstations(data.workstations);
+  // Merge all workstations from all agents
+  const allWs = data.all_workstations || [data.workstations || []];
+  const mergedWs = [];
+  const seenIds = new Set();
+  allWs.flat().forEach(ws => {
+    if(ws && !seenIds.has(ws.id)) { seenIds.add(ws.id); mergedWs.push(ws); }
+  });
+  if(mergedWs.length) renderWorkstations(mergedWs);
   renderAgentPanels(agents);
 
   // Clear workstation highlights, then only activate the ones in use

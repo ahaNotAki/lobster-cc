@@ -335,6 +335,100 @@ class TestApiStatus:
         assert "recent_tasks" in data
         assert data["agent"]["state"] == "idle"
 
+    @pytest.mark.asyncio
+    async def test_api_status_all_workstations(self, tmp_path):
+        """Verify /api/status includes all_workstations as list of lists (one per agent)."""
+        import json
+
+        # Clear global state
+        routes._failed_attempts.clear()
+
+        # Create two agent working directories with different workstation configs
+        wd1 = tmp_path / "lobster1"
+        wd1.mkdir()
+        ws1 = [{"id": "general", "icon": "💼", "label": "General"}]
+        (wd1 / ".dashboard-workstations.json").write_text(json.dumps(ws1))
+
+        wd2 = tmp_path / "lobster2"
+        wd2.mkdir()
+        ws2 = [{"id": "social", "icon": "📱", "label": "Social"}]
+        (wd2 / ".dashboard-workstations.json").write_text(json.dumps(ws2))
+
+        # Mock store and runners
+        mock_store = MagicMock()
+        mock_store.get_running_task.return_value = None
+        mock_store.get_latest_task_any_user.return_value = None
+        mock_store.list_tasks_all_users.return_value = []
+
+        mock_runner1 = MagicMock()
+        mock_runner1.is_running = False
+        mock_runner1._process = None
+        mock_runner1.model_info = {}
+
+        mock_runner2 = MagicMock()
+        mock_runner2.is_running = False
+        mock_runner2._process = None
+        mock_runner2.model_info = {}
+
+        # Create executors
+        executor1 = MagicMock()
+        executor1.runner = mock_runner1
+        executor1.dashboard_streaming = {}
+        executor1.store = mock_store
+
+        executor2 = MagicMock()
+        executor2.runner = mock_runner2
+        executor2.dashboard_streaming = {}
+        executor2.store = mock_store
+
+        # Create wecom configs
+        wc1 = MagicMock()
+        wc1.agent_id = "1000002"
+        wc2 = MagicMock()
+        wc2.agent_id = "1000003"
+
+        agents = [
+            {"label": "Agent1", "executor": executor1, "working_dir": str(wd1), "wecom_config": wc1},
+            {"label": "Agent2", "executor": executor2, "working_dir": str(wd2), "wecom_config": wc2},
+        ]
+
+        app = web.Application()
+        register_dashboard_routes(
+            app,
+            password=PASSWORD,
+            secret=SECRET,
+            store=mock_store,
+            agents=agents,
+            working_dir=str(tmp_path),
+        )
+
+        server = TestServer(app)
+        cli = TestClient(server)
+        await cli.start_server()
+
+        fake_time = 1_700_000_000.0
+        token = _auth_cookie(fake_time)
+        try:
+            with patch.object(routes.time, "time", return_value=fake_time + 100):
+                cli.session.cookie_jar.update_cookies(
+                    {_COOKIE_NAME: token},
+                    response_url=cli.make_url("/"),
+                )
+                resp = await cli.get("/api/status")
+
+            assert resp.status == 200
+            data = await resp.json()
+            assert "all_workstations" in data
+            assert isinstance(data["all_workstations"], list)
+            assert len(data["all_workstations"]) == 2
+            # First agent's workstations
+            assert data["all_workstations"][0][0]["id"] == "general"
+            # Second agent's workstations
+            assert data["all_workstations"][1][0]["id"] == "social"
+        finally:
+            await cli.close()
+            routes._failed_attempts.clear()
+
 
 class TestLockout:
     @pytest.mark.asyncio
