@@ -3,6 +3,7 @@ config.yaml
 *.db
 *.log
 *.pid
+*.service
 .mcp.json
 _media/
 

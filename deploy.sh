@@ -63,7 +63,7 @@ TUNNEL_PID_FILE="$REMOTE_DIR/.proxy_tunnel.pid"
 # Count total steps
 TOTAL_STEPS=5
 if [ -n "$PROXY_IP" ]; then
-    TOTAL_STEPS=7
+    TOTAL_STEPS=6
 fi
 STEP=0
 next_step() { STEP=$((STEP + 1)); echo "[$STEP/$TOTAL_STEPS] $1"; }
@@ -171,11 +171,9 @@ if [ -n "$PROXY_IP" ]; then
     next_step "Setting up proxy tunnel on remote host..."
 
     # Copy SSH key to remote host
-    REMOTE_KEY_DIR="\$HOME/.ssh"
-    REMOTE_KEY_FILE="rc-proxy-key.pem"
     ssh "$SSH_TARGET" "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-    scp -q "$PROXY_KEY" "$SSH_TARGET:~/.ssh/$REMOTE_KEY_FILE"
-    ssh "$SSH_TARGET" "chmod 600 ~/.ssh/$REMOTE_KEY_FILE"
+    scp -q "$PROXY_KEY" "$SSH_TARGET:~/.ssh/rc-proxy-key.pem"
+    ssh "$SSH_TARGET" "chmod 600 ~/.ssh/rc-proxy-key.pem"
     echo "  SSH key copied to remote host."
 
     # Ensure autossh is available on remote
@@ -196,71 +194,34 @@ if [ -n "$PROXY_IP" ]; then
     echo "  autossh: $(command -v autossh)"
 REMOTE_SCRIPT
 
-    next_step "Starting proxy tunnel..."
-    ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
-    # Kill existing tunnel if running
-    if [ -f '$TUNNEL_PID_FILE' ]; then
-        OLD_PID=\$(cat '$TUNNEL_PID_FILE')
-        if kill -0 "\$OLD_PID" 2>/dev/null; then
-            echo "  Stopping existing tunnel (pid=\$OLD_PID)..."
-            kill "\$OLD_PID" 2>/dev/null || true
-            sleep 1
-        fi
-        rm -f '$TUNNEL_PID_FILE'
-    fi
-
-    # Check if the SOCKS port is already in use
-    if ss -tlnp 2>/dev/null | grep -q ":$PROXY_PORT " || netstat -tlnp 2>/dev/null | grep -q ":$PROXY_PORT "; then
-        echo "  Port $PROXY_PORT already in use — tunnel may already be running."
-    else
-        # Accept the EC2 host key upfront
-        ssh-keyscan -H '$PROXY_IP' >> ~/.ssh/known_hosts 2>/dev/null || true
-
-        # Start tunnel in background
-        export AUTOSSH_GATETIME=0
-        nohup autossh -M 0 -N \
-            -D "0.0.0.0:$PROXY_PORT" \
-            -o "ServerAliveInterval 30" \
-            -o "ServerAliveCountMax 3" \
-            -o "ExitOnForwardFailure yes" \
-            -i "\$HOME/.ssh/$REMOTE_KEY_FILE" \
-            "ec2-user@$PROXY_IP" > /dev/null 2>&1 &
-        TUNNEL_PID=\$!
-        echo "\$TUNNEL_PID" > '$TUNNEL_PID_FILE'
-        sleep 2
-
-        if kill -0 "\$TUNNEL_PID" 2>/dev/null; then
-            echo "  Proxy tunnel running (pid=\$TUNNEL_PID, socks5://127.0.0.1:$PROXY_PORT)"
-        else
-            echo "  WARNING: Tunnel process exited. Check connectivity to $PROXY_IP"
-        fi
-    fi
-REMOTE_SCRIPT
 fi
 
-# --- Stop & start application ---
-next_step "Starting application..."
+# --- Extract remote username ---
+REMOTE_USER="${SSH_TARGET%%@*}"
+
+# --- Install and start systemd services ---
+next_step "Installing and starting services..."
+
+# Transition: clean up old nohup processes (from pre-systemd deploys)
 ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
-    # Kill existing instance if running
     if [ -f '$PID_FILE' ]; then
         OLD_PID=\$(cat '$PID_FILE')
         if kill -0 "\$OLD_PID" 2>/dev/null; then
-            echo "  Stopping existing instance (pid=\$OLD_PID)..."
-            kill "\$OLD_PID"
-            # Wait up to 5 seconds for graceful shutdown
-            for i in 1 2 3 4 5; do
-                kill -0 "\$OLD_PID" 2>/dev/null || break
-                sleep 1
-            done
-            # Force kill if still running
-            if kill -0 "\$OLD_PID" 2>/dev/null; then
-                kill -9 "\$OLD_PID" 2>/dev/null || true
-            fi
+            echo "  Stopping old nohup instance (pid=\$OLD_PID)..."
+            kill "\$OLD_PID" 2>/dev/null || true
+            sleep 2
+            kill -9 "\$OLD_PID" 2>/dev/null || true
         fi
         rm -f '$PID_FILE'
     fi
-
-    # Kill any orphaned claude -p subprocesses from previous instances
+    if [ -f '$TUNNEL_PID_FILE' ]; then
+        OLD_PID=\$(cat '$TUNNEL_PID_FILE')
+        if kill -0 "\$OLD_PID" 2>/dev/null; then
+            echo "  Stopping old nohup tunnel (pid=\$OLD_PID)..."
+            kill "\$OLD_PID" 2>/dev/null || true
+        fi
+        rm -f '$TUNNEL_PID_FILE'
+    fi
     ORPHANS=\$(pgrep -f 'claude.*-p.*--output-format' 2>/dev/null || true)
     if [ -n "\$ORPHANS" ]; then
         echo "  Killing orphaned claude processes: \$ORPHANS"
@@ -268,24 +229,82 @@ ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
         sleep 2
         echo "\$ORPHANS" | xargs kill -9 2>/dev/null || true
     fi
+REMOTE_SCRIPT
 
-    # Start new instance
-    cd '$REMOTE_DIR'
-    source .venv/bin/activate
-    nohup python -m remote_control.main -c config.yaml > '$LOG_FILE' 2>&1 &
-    NEW_PID=\$!
-    echo "\$NEW_PID" > '$PID_FILE'
-    echo "  Started with pid=\$NEW_PID"
+# Generate proxy tunnel service (if proxy configured)
+if [ -n "$PROXY_IP" ]; then
+    ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
+    # Accept the EC2 host key upfront
+    ssh-keyscan -H '$PROXY_IP' >> ~/.ssh/known_hosts 2>/dev/null || true
+    AUTOSSH_BIN=\$(command -v autossh)
+    sudo tee /etc/systemd/system/rc-proxy-tunnel.service > /dev/null <<EOF
+[Unit]
+Description=Lobster CC — WeCom SOCKS5 proxy tunnel
+After=network-online.target
+Wants=network-online.target
 
-    # Wait a moment for startup
+[Service]
+Type=simple
+User=$REMOTE_USER
+Environment=AUTOSSH_GATETIME=0
+ExecStart=\$AUTOSSH_BIN -M 0 -N -D 0.0.0.0:$PROXY_PORT -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -i /home/$REMOTE_USER/.ssh/rc-proxy-key.pem ec2-user@$PROXY_IP
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "  Installed rc-proxy-tunnel.service"
+REMOTE_SCRIPT
+    LOBSTER_AFTER="After=network-online.target rc-proxy-tunnel.service"
+    LOBSTER_WANTS="Wants=network-online.target rc-proxy-tunnel.service"
+else
+    LOBSTER_AFTER="After=network-online.target"
+    LOBSTER_WANTS="Wants=network-online.target"
+fi
+
+# Generate lobster-cc service
+ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
+    sudo tee /etc/systemd/system/lobster-cc.service > /dev/null <<EOF
+[Unit]
+Description=Lobster CC — Remote Control for Claude Code
+$LOBSTER_AFTER
+$LOBSTER_WANTS
+
+[Service]
+Type=simple
+User=$REMOTE_USER
+WorkingDirectory=$REMOTE_DIR
+ExecStart=/bin/bash -c 'exec $REMOTE_DIR/.venv/bin/python -m remote_control.main -c config.yaml >> $LOG_FILE 2>&1'
+Restart=always
+RestartSec=5
+Environment=HOME=/home/$REMOTE_USER
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "  Installed lobster-cc.service"
+REMOTE_SCRIPT
+
+# Reload and start services
+ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
+    sudo systemctl daemon-reload
+
+    if [ -f /etc/systemd/system/rc-proxy-tunnel.service ]; then
+        sudo systemctl enable rc-proxy-tunnel
+        sudo systemctl restart rc-proxy-tunnel
+        echo "  rc-proxy-tunnel service started."
+    fi
+
+    sudo systemctl enable lobster-cc
+    sudo systemctl restart lobster-cc
     sleep 2
 
-    # Check if it's still running
-    if kill -0 "\$NEW_PID" 2>/dev/null; then
-        echo "  Application is running."
+    if systemctl is-active --quiet lobster-cc; then
+        echo "  lobster-cc service is running."
     else
-        echo "  ERROR: Application exited immediately. Last 10 lines of log:"
-        tail -10 '$LOG_FILE'
+        echo "  ERROR: lobster-cc failed to start. Recent logs:"
+        journalctl -u lobster-cc --no-pager -n 10 2>/dev/null || tail -10 '$LOG_FILE'
         exit 1
     fi
 REMOTE_SCRIPT
@@ -294,29 +313,22 @@ REMOTE_SCRIPT
 echo ""
 next_step "Status check..."
 ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
-    PID=\$(cat '$PID_FILE' 2>/dev/null || echo "")
-    if [ -n "\$PID" ] && kill -0 "\$PID" 2>/dev/null; then
-        echo "  PID:     \$PID"
-        echo "  Log:     $LOG_FILE"
-        echo "  Config:  $REMOTE_DIR/config.yaml"
-    else
-        echo "  ERROR: Application is not running!"
-        [ -f '$LOG_FILE' ] && tail -10 '$LOG_FILE' | sed 's/^/    /'
-        exit 1
-    fi
+    echo "  lobster-cc:"
+    STATUS=\$(systemctl is-active lobster-cc 2>/dev/null || echo "inactive")
+    PID=\$(systemctl show lobster-cc --property=MainPID 2>/dev/null | cut -d= -f2 || echo "?")
+    echo "    Status:  \$STATUS (pid=\$PID)"
+    echo "    Log:     $LOG_FILE"
+    echo "    Config:  $REMOTE_DIR/config.yaml"
     echo ""
     echo "  Last 5 log lines:"
-    tail -5 '$LOG_FILE' | sed 's/^/    /'
+    tail -5 '$LOG_FILE' 2>/dev/null | sed 's/^/    /' || echo "    (no logs yet)"
 REMOTE_SCRIPT
 
 if [ -n "$PROXY_IP" ]; then
     ssh "$SSH_TARGET" bash -s <<REMOTE_SCRIPT
-    TPID=\$(cat '$TUNNEL_PID_FILE' 2>/dev/null || echo "")
-    if [ -n "\$TPID" ] && kill -0 "\$TPID" 2>/dev/null; then
-        echo "  Proxy:   socks5://127.0.0.1:$PROXY_PORT (pid=\$TPID, via $PROXY_IP)"
-    else
-        echo "  Proxy:   NOT RUNNING (check tunnel manually)"
-    fi
+    TSTATUS=\$(systemctl is-active rc-proxy-tunnel 2>/dev/null || echo "inactive")
+    TPID=\$(systemctl show rc-proxy-tunnel --property=MainPID 2>/dev/null | cut -d= -f2 || echo "?")
+    echo "  Proxy:   socks5://127.0.0.1:$PROXY_PORT (\$TSTATUS, pid=\$TPID, via $PROXY_IP)"
 REMOTE_SCRIPT
 fi
 
@@ -325,8 +337,11 @@ echo "=== Deploy complete ==="
 echo ""
 echo "Useful commands:"
 echo "  View logs:    ssh $SSH_TARGET 'tail -f $LOG_FILE'"
-echo "  Stop:         ssh $SSH_TARGET 'kill \$(cat $PID_FILE)'"
-echo "  Check status: ssh $SSH_TARGET 'kill -0 \$(cat $PID_FILE) 2>/dev/null && echo running || echo stopped'"
+echo "  journalctl:   ssh $SSH_TARGET 'journalctl -u lobster-cc -f'"
+echo "  Restart:      ssh $SSH_TARGET 'sudo systemctl restart lobster-cc'"
+echo "  Stop:         ssh $SSH_TARGET 'sudo systemctl stop lobster-cc'"
+echo "  Status:       ssh $SSH_TARGET 'systemctl status lobster-cc'"
 if [ -n "$PROXY_IP" ]; then
-    echo "  Stop tunnel:  ssh $SSH_TARGET 'kill \$(cat $TUNNEL_PID_FILE)'"
+    echo "  Tunnel logs:  ssh $SSH_TARGET 'journalctl -u rc-proxy-tunnel -f'"
+    echo "  Stop tunnel:  ssh $SSH_TARGET 'sudo systemctl stop rc-proxy-tunnel'"
 fi

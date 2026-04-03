@@ -36,12 +36,17 @@ python -m pytest tests/test_store.py -v
 # Lint
 ruff check src/ tests/
 
-# Deploy to remote machine
+# Deploy to remote machine (installs systemd services for auto-restart on boot)
 ./deploy.sh user@host [/remote/path]
 
 # Deploy with fixed outbound IP proxy
 ./scripts/setup.sh --proxy                  # one-time EC2 + Elastic IP setup
 ./deploy.sh user@host /path --proxy-ip <elastic-ip> --proxy-key ~/.ssh/rc-proxy-key.pem
+
+# Manage services on remote host
+ssh user@host 'systemctl status lobster-cc'           # check status
+ssh user@host 'sudo systemctl restart lobster-cc'     # restart
+ssh user@host 'journalctl -u lobster-cc -f'           # live logs
 ```
 
 ## Architecture

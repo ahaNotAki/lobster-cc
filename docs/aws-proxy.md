@@ -80,21 +80,20 @@ The deploy script will:
 
 ### Systemd service (Linux)
 
-For auto-start on boot:
+The proxy tunnel service is automatically generated and enabled by `deploy.sh`
+when using `--proxy-ip`. It auto-starts on boot. Manual management:
 
 ```bash
-# Edit the service file with your values
-sudo cp scripts/rc-proxy-tunnel.service /etc/systemd/system/
-sudo vim /etc/systemd/system/rc-proxy-tunnel.service  # set IP, port, key path
-sudo systemctl daemon-reload
-sudo systemctl enable --now rc-proxy-tunnel
+sudo systemctl status rc-proxy-tunnel
+sudo systemctl restart rc-proxy-tunnel
+journalctl -u rc-proxy-tunnel -f
 ```
 
 ### Check tunnel status
 
 ```bash
-# Is the tunnel process running?
-kill -0 $(cat /path/to/.proxy_tunnel.pid) && echo running || echo stopped
+# Is the systemd service running?
+systemctl is-active rc-proxy-tunnel
 
 # Is the SOCKS port listening?
 ss -tlnp | grep :1080
