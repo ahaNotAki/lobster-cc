@@ -105,6 +105,16 @@ def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
         },
     }
 
+    recall_entry = {
+        "command": python_bin,
+        "args": ["-m", "remote_control.mcp.recall_server"],
+        "env": {
+            "AGENT_WORKING_DIR": str(working_dir),
+            "AGENT_ID": str(wecom_config.agent_id),
+            "DB_PATH": str(Path(config.storage.db_path).resolve()),
+        },
+    }
+
     # Merge with existing .mcp.json if present
     existing = {}
     if mcp_path.exists():
@@ -116,6 +126,7 @@ def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
     servers = existing.get("mcpServers", {})
     servers["wecom"] = wecom_entry
     servers["agent-profile"] = profile_entry
+    servers["task-recall"] = recall_entry
     existing["mcpServers"] = servers
 
     mcp_path.write_text(json.dumps(existing, indent=2) + "\n")

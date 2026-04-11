@@ -14,6 +14,7 @@ _media/
 .schedules/
 .agent-profile.yaml
 .agent-profile-history/
+.task-archive/
 
 # Python
 __pycache__/

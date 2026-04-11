@@ -100,6 +100,7 @@ rsync -avz --delete \
     --exclude '.dashboard-tabs.json' \
     --exclude '.agent-profile.yaml' \
     --exclude '.agent-profile-history/' \
+    --exclude '.task-archive/' \
     "$LOCAL_DIR/" "$SSH_TARGET:$REMOTE_DIR/"
 
 # --- Seed per-agent config files (never overwrite existing) ---
