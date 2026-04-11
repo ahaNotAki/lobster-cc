@@ -38,6 +38,16 @@ def _get_working_dir() -> str:
     return os.environ.get("AGENT_WORKING_DIR", ".")
 
 
+def _increment_counter(key: str) -> None:
+    """Atomically increment a counter in the kv table."""
+    try:
+        store = _get_store()
+        current = store.get_kv(key, "0")
+        store.set_kv(key, str(int(current) + 1))
+    except Exception:
+        pass  # best-effort
+
+
 _TIME_RANGES = {
     "today": lambda: timedelta(hours=datetime.now(timezone.utc).hour + 1),
     "yesterday": lambda: timedelta(days=2),
@@ -68,6 +78,10 @@ def _do_recall_tasks(time_range: str = "last_week", limit: int = 30) -> str:
         icon = "\u2705" if t["status"] == "completed" else "\u274c"
         summary = t["summary"] or t["message"]
         lines.append(f"[{t['date'][:16]}] {icon} {summary}  (id:{t['task_id'][:8]})")
+
+    agent_id = os.environ.get("AGENT_ID", "")
+    _increment_counter(f"recall_count:{agent_id}")
+
     return "\n".join(lines)
 
 
@@ -79,21 +93,26 @@ def _do_get_task_detail(task_id: str) -> str:
     wd = _get_working_dir()
     archive_dir = Path(wd) / ".task-archive"
 
+    agent_id = os.environ.get("AGENT_ID", "")
+
     # Exact match first
     exact = archive_dir / f"{task_id}.md"
     if exact.exists():
+        _increment_counter(f"detail_count:{agent_id}")
         return exact.read_text(encoding="utf-8")
 
     # Prefix match (user may pass short ID from recall_tasks)
     if archive_dir.exists():
         for f in archive_dir.iterdir():
             if f.name.startswith(task_id) and f.suffix == ".md":
+                _increment_counter(f"detail_count:{agent_id}")
                 return f.read_text(encoding="utf-8")
 
     # Fallback: check DB output field
     store = _get_store()
     task = store.get_task(task_id)
     if task and task.output:
+        _increment_counter(f"detail_count:{agent_id}")
         return f"# Task: {task.message[:200]}\n\n---\n\n{task.output}"
 
     return f"Task archive not found for ID: {task_id}"

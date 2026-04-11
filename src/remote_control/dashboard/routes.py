@@ -148,14 +148,17 @@ def register_dashboard_routes(
             ag_store = getattr(executor, "store", store) if executor else store
             # Per-agent working dir for config loading
             ag_working_dir = ag.get("working_dir", working_dir)
-            data = get_agent_status(ag_store, ag_runner, ag_streaming, ag_working_dir, project_dir)
+            # Extract agent_id for recall stats
+            ag_wecom_config = ag.get("wecom_config")
+            ag_agent_id = str(ag_wecom_config.agent_id) if ag_wecom_config and hasattr(ag_wecom_config, "agent_id") else ""
+            data = get_agent_status(ag_store, ag_runner, ag_streaming, ag_working_dir, project_dir, ag_agent_id)
             # Use lobster.name from config (real-time), fallback to startup label
             lobster_name = data.get("lobster", {}).get("name", "")
             data["agent"]["name"] = lobster_name or ag.get("label", "agent")
             all_agents_data.append(data)
 
         # Always return multi-agent structure
-        first = all_agents_data[0] if all_agents_data else get_agent_status(store, None, {}, working_dir, project_dir)
+        first = all_agents_data[0] if all_agents_data else get_agent_status(store, None, {}, working_dir, project_dir, "")
         # Build agent_id → name mapping
         agent_names = {}
         for ag_data, ag_cfg in zip(all_agents_data, agent_list):
@@ -171,6 +174,7 @@ def register_dashboard_routes(
         first["all_schedules"] = [a.get("schedule_configs", []) for a in all_agents_data]
         first["all_tabs"] = [a.get("tabs", []) for a in all_agents_data]
         first["all_workstations"] = [a.get("workstations", []) for a in all_agents_data]
+        first["all_recall_stats"] = [a.get("recall_stats", {}) for a in all_agents_data]
         first["agent_names"] = agent_names
         return web.json_response(first)
 

@@ -296,6 +296,7 @@ function renderAgentPanels(agentsList){
       <div class="stream-box output" id="out-${i}" style="display:none;max-height:200px"></div>
       <div style="margin-top:8px;display:flex;align-items:center;gap:4px"><span style="font-size:13px">🧠</span><span class="dim" style="font-size:11px">Thinking</span></div>
       <div class="stream-box thinking" id="think-${i}" style="max-height:120px;min-height:40px">Waiting...</div>
+      <div id="recall-${i}" class="mono" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--dim);line-height:1.5"></div>
     </div>`;
   });
   container.appendChild(grid);
@@ -357,6 +358,15 @@ function updateUI(data){
     if(ob){if(a.streaming_output){ob.style.display='block';ob.textContent=a.streaming_output;ob.scrollTop=ob.scrollHeight;}else ob.style.display='none';}
     const tb=document.getElementById('think-'+i);
     if(tb){if(a.thinking){tb.textContent=a.thinking;tb.scrollTop=tb.scrollHeight;}else tb.textContent=state==='idle'?'Waiting...':'Thinking...';}
+
+    // Recall stats
+    const allRecallStats=data.all_recall_stats||[data.recall_stats||{}];
+    const rs=allRecallStats[i]||{};
+    const rcEl=document.getElementById('recall-'+i);
+    if(rcEl&&rs.total_completed!=null){
+      const totalRecalled=rs.recall_count+rs.detail_count;
+      rcEl.innerHTML=`📋 Recall: ${totalRecalled}/${rs.total_completed} tasks recalled (${rs.recall_ratio}%) | 📁 Archives: ${rs.archive_count} | ✅ Summaries: ${rs.tasks_with_summary}/${rs.total_completed}`;
+    }
   });
 
   // Model info — per agent

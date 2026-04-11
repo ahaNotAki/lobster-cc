@@ -115,7 +115,7 @@ def _state_label(state: str, workstations: list[dict]) -> str:
 
 
 def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
-                     working_dir: str = ".", project_dir: str = "") -> dict:
+                     working_dir: str = ".", project_dir: str = "", agent_id: str = "") -> dict:
     """Build the full status payload for the dashboard API."""
     lobster_config, workstations = load_dashboard_config(working_dir, project_dir)
     running_task = store.get_running_task()
@@ -230,6 +230,38 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
     from remote_control.dashboard.tabs import load_tab_configs
     tabs = load_tab_configs(working_dir)
 
+    # Recall metrics
+    recall_stats = {}
+    if agent_id:
+        agent_id_str = str(agent_id)
+        total_completed = store.conn.execute(
+            "SELECT count(*) FROM tasks WHERE agent_id = ? AND status = 'completed'",
+            (agent_id_str,)
+        ).fetchone()[0]
+
+        # Count tasks with meaningful summaries (not empty, not just first-line fallback)
+        tasks_with_summary = store.conn.execute(
+            "SELECT count(*) FROM tasks WHERE agent_id = ? AND status = 'completed' AND summary != '' AND length(summary) > 10",
+            (agent_id_str,)
+        ).fetchone()[0]
+
+        # Count archive files
+        archive_dir = Path(working_dir) / ".task-archive"
+        archive_count = len(list(archive_dir.glob("*.md"))) if archive_dir.exists() else 0
+
+        # Recall tool usage
+        recall_count = int(store.get_kv(f"recall_count:{agent_id_str}", "0"))
+        detail_count = int(store.get_kv(f"detail_count:{agent_id_str}", "0"))
+
+        recall_stats = {
+            "total_completed": total_completed,
+            "tasks_with_summary": tasks_with_summary,
+            "archive_count": archive_count,
+            "recall_count": recall_count,
+            "detail_count": detail_count,
+            "recall_ratio": round((recall_count + detail_count) / max(total_completed, 1) * 100, 1),
+        }
+
     return {
         "agent": agent_info,
         "process": process_info,
@@ -241,6 +273,7 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
         "lobster": lobster_config,
         "workstations": [{"id": ws["id"], "label": ws.get("label", ws["id"]),
                           "icon": ws.get("icon", "⚙️")} for ws in workstations],
+        "recall_stats": recall_stats,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
