@@ -33,7 +33,6 @@ class TestAgentProfile:
         assert p.notification.notify_on_completion is False
         assert p.model_selection.default_model == ""
         assert p.model_selection.task_type_overrides == []
-        assert p.memory.keyword_match_limit == 5
         assert p.custom_commands == {}
 
     def test_custom_commands(self):

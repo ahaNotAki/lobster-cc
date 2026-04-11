@@ -42,12 +42,6 @@ class ModelSelection(BaseModel):
     task_type_overrides: list[ModelOverride] = []
 
 
-class MemoryPrefs(BaseModel):
-    keyword_match_limit: int = 5
-    recent_context_limit: int = 5
-    max_context_chars: int = 2000
-
-
 class CustomCommand(BaseModel):
     prompt: str  # prompt to expand to
     description: str = ""  # shown in /help
@@ -61,7 +55,6 @@ class AgentProfile(BaseModel):
     output_style: OutputStyle = OutputStyle()
     notification: NotificationPrefs = NotificationPrefs()
     model_selection: ModelSelection = ModelSelection()
-    memory: MemoryPrefs = MemoryPrefs()
     custom_commands: dict[str, CustomCommand] = {}  # key = command name WITHOUT /
 
     model_config = ConfigDict(extra="ignore")  # ignore unknown fields for forward compat

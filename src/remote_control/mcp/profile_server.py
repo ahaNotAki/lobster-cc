@@ -137,7 +137,6 @@ def list_agent_config() -> str:
             "output_style": "Output style — controls response formatting",
             "notification": "Notification — streaming and progress intervals",
             "model_selection": "Model selection — default model and task-type overrides",
-            "memory": "Memory — keyword matching and context limits",
             "custom_commands": "Custom commands — user-defined slash commands",
         }
 
@@ -149,7 +148,7 @@ def list_agent_config() -> str:
         lines.append(f"updated_at: {profile.updated_at!r}")
         lines.append("")
 
-        for section_key in ["output_style", "notification", "model_selection", "memory", "custom_commands"]:
+        for section_key in ["output_style", "notification", "model_selection", "custom_commands"]:
             desc = section_descriptions.get(section_key, section_key)
             lines.append(f"# {desc}")
             section_data = data.get(section_key, {})

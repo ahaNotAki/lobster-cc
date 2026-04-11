@@ -18,9 +18,4 @@ model_selection:
   default_model: ""
   task_type_overrides: []
 
-memory:
-  keyword_match_limit: 5
-  recent_context_limit: 5
-  max_context_chars: 2000
-
 custom_commands: {}

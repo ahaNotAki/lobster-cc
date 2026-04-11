@@ -46,7 +46,7 @@ def test_get_config_all(profile_env):
     assert result["type"] == "object"
     assert "output_style" in result["value"]
     assert "notification" in result["value"]
-    assert "memory" in result["value"]
+    assert "custom_commands" in result["value"]
 
 
 def test_get_config_all_explicit(profile_env):
@@ -126,7 +126,7 @@ def test_list_config(profile_env):
     result = list_agent_config()
     assert "output_style" in result
     assert "notification" in result
-    assert "memory" in result
+    assert "custom_commands" in result
     assert "Agent Profile Configuration" in result
     # Should be YAML-like text, not JSON
     assert "{" not in result.split("\n")[0]  # first line is a comment, not JSON

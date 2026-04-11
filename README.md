@@ -83,10 +83,10 @@ Day 7:   agent has a morning briefing schedule, custom prompt for financial anal
 
 ### Memory that persists
 
-The self-evolution is backed by a dual-layer memory system:
+Memory is persistent across sessions:
 
-- **Long-term knowledge** — Claude manages its own `MEMORY.md`, accumulating decisions, preferences, and project context across all sessions
-- **Task recall** — previous task results are stored in SQLite, keyword-matched, and injected as context for new tasks
+- **Long-term knowledge** — Claude manages its own auto-memory (`~/.claude/projects/.../memory/MEMORY.md`), accumulating decisions, preferences, and project context across all sessions
+- **Task archive** — completed task outputs are archived to `.task-archive/` with Claude-generated summaries. Claude can query past results on demand via MCP tools (no blind context injection)
 
 Ask Claude about something it did last week and it remembers.
 
@@ -253,8 +253,6 @@ Send a message to your bot. It should respond.
 | `/new` | Fresh session (reset context) |
 | `/cd <path>` | Switch working directory |
 | `/output <id>` | Full output of a completed task |
-| `/memory` | Memory stats |
-| `/memory show` | View stored knowledge |
 | `/restart` | Restart Claude (reload MCP servers) |
 | `/help` | Show all commands |
 

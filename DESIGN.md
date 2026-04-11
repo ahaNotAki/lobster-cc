@@ -105,13 +105,14 @@ Config can be either a single dict (backwards compatible) or a list of agents.
 |-----------|---------------|
 | **Message Source** | Pluggable adapter for receiving messages. `CallbackSource` (WeCom webhook via ngrok) or `RelayPollingSource` (polls AWS Lambda relay). See Section 14. |
 | **WeCom Gateway** | HTTP callback handler for verification, decryption, and dispatch. Used internally by `CallbackSource`. |
-| **Command Router** | Parses incoming messages: slash commands (`/status`, `/cancel`, `/clear`, `/memory`, etc.) are handled immediately; everything else becomes a task. Scheduling is handled by Claude Code's `scheduler` MCP plugin via natural language. |
+| **Command Router** | Parses incoming messages: slash commands (`/status`, `/cancel`, `/clear`, etc.) are handled immediately; everything else becomes a task. Scheduling is handled by Claude Code's `scheduler` MCP plugin via natural language. |
 | **Agent Runner** | Manages Claude Code CLI subprocess. Uses `--output-format stream-json` for structured streaming. Parses `system/init`, `assistant`, and `result` events to extract thinking blocks, token usage, model info, and cost. Self-heals session mismatches by retrying with opposite `--session-id`/`--resume` flag. |
 | **Notifier** | Sends notifications to WeCom on task failure. Prepends task labels (first line of user message) to all notifications. Auto-splits text and markdown that exceed WeCom's 2048-byte limit. `StreamHandler` sends buffered output at throttled intervals with dashboard reference for real-time streaming. |
 | **Task Store** | SQLite-backed persistence for tasks, sessions, memories, and key-value pairs (e.g., relay cursor). `ScopedStore` wrapper provides per-agent isolation via `agent_id` column. |
 | **Dashboard** | Password-protected read-only web UI at `/dashboard`. Shows real-time agent state (idle/working/done), streaming output, thinking, model info, token usage, recent tasks, cron jobs, and configurable workstations. Multi-agent aware. |
-| **Memory (Task History)** | SQLite-backed task history with keyword matching for contextual recall. Long-term knowledge is managed by Claude via native `MEMORY.md` files. |
+| **Task Archive & Recall** | Task outputs archived to `.task-archive/{task_id}.md` files. MCP server exposes `recall_tasks` and `get_task_detail` tools for cross-session retrieval. Long-term knowledge is managed by Claude via native auto-memory. |
 | **WeCom MCP Server** | Standalone stdio-based MCP server exposing `send_wecom_message`, `send_wecom_image`, `send_wecom_file` tools. Auto-configured via `.mcp.json` so all Claude processes (including scheduler-spawned) can send WeCom messages. See Section 15. |
+| **Task Recall MCP Server** | Standalone stdio-based MCP server exposing `recall_tasks` and `get_task_detail` tools for cross-session task history query. Archives stored in `.task-archive/`. See Section 16. |
 | **Agent Profile MCP Server** | Standalone stdio-based MCP server exposing `get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config` tools. Enables agents to self-configure output style, model selection, notifications, and custom commands. See Section 17. |
 
 ---
@@ -178,15 +179,15 @@ Claude Code has built-in memory (`~/.claude/` auto-memory) and reads `CLAUDE.md`
 
 ### Persistent Memory System
 
-A dual-layer memory design that separates long-term knowledge from task history recall:
+Long-term knowledge lives in Claude Code's native auto-memory (`~/.claude/projects/.../memory/MEMORY.md`), auto-read at every session start. All Claude processes — executor tasks, cron jobs, manual CLI — share the same auto-memory. The executor's prompt hint instructs Claude to update auto-memory when it learns something of lasting value during a task. This follows Anthropic's recommended "agentic memory" pattern where the model itself decides what to remember.
 
-**Layer 1 — Long-term knowledge (Claude-managed)**: Claude Code's native `MEMORY.md` files (`~/.claude/projects/.../memory/MEMORY.md`) store persistent knowledge. All Claude processes — executor tasks, cron jobs, manual CLI — share the same MEMORY.md. The executor's prompt hint instructs Claude to update MEMORY.md when it learns something of lasting value during a task. This follows Anthropic's recommended "agentic memory" pattern where the model itself decides what to remember.
+Task history is archived to `.task-archive/{task_id}.md` files after each completed task. The executor prompts Claude to generate a 📋 emoji-tagged summary of the task result, which is stored in the tasks table's `summary` field. Full task outputs are saved as markdown files in the archive directory.
 
-**Layer 2 — Task history (SQLite-backed)**: After each successful task, a raw memory entry is saved in the `memories` table with the task message, truncated output, and extracted keyword tags. Before each task, keyword-matched history entries are prepended to the user's message as a `<context>` block. This provides contextual recall that Claude's native memory cannot do (e.g., "what was the result of the stock analysis yesterday?").
+The `task-recall` MCP server (see Section 18) exposes two tools:
+- `recall_tasks(start_date, end_date, limit)` — Browse task summaries by date range
+- `get_task_detail(task_id)` — Read full archived output of a specific task
 
-**Retrieval**: Recency-based (last N entries) + keyword matching via SQL `LIKE` with relevance scoring (sum of tag matches). No embedding model required.
-
-**Slash commands**: `/memory` (stats), `/memory show` (view knowledge), `/memory clear` (reset).
+Claude can query history on demand using these tools — no blind context injection. This enables cross-session recall even after `/new` session resets (e.g., "what was the stock analysis result from yesterday?").
 
 ---
 
@@ -367,7 +368,6 @@ COMMANDS = {
     "/cd":      handle_cd,       # Change working directory
     "/output":  handle_output,   # Get full output of a task
     "/clear":   handle_clear,    # Clear all task history
-    "/memory":  handle_memory,   # Memory stats/show/clear
     "/restart": handle_restart,  # Kill claude process, reset session, reload MCP servers
     "/help":    handle_help,     # Show available commands
 }
@@ -439,30 +439,9 @@ CREATE TABLE cron_jobs (
 
 The `kv` table stores persistent key-value pairs, currently used for relay cursor persistence (`relay_cursor_{agent_id}`).
 
-The `memories` table stores per-user, per-agent memory entries:
-
-```sql
-CREATE TABLE IF NOT EXISTS memories (
-    id               TEXT PRIMARY KEY,
-    user_id          TEXT NOT NULL,
-    agent_id         TEXT NOT NULL DEFAULT '',  -- scoped per WeCom agent
-    type             TEXT NOT NULL,      -- 'raw' or 'consolidated'
-    source_task      TEXT DEFAULT '',
-    content          TEXT NOT NULL,
-    tags             TEXT DEFAULT '',    -- comma-separated keywords
-    category         TEXT DEFAULT '',    -- facts/decisions/preferences/project_state
-    created_at       TEXT NOT NULL,
-    consolidated_at  TEXT DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_memories_user_type
-    ON memories(user_id, type, consolidated_at);
-```
-
-Raw entries are auto-created after successful tasks. Keyword matching uses `LIKE` with relevance scoring via summed `CASE` expressions.
-
 ### ScopedStore Pattern
 
-The `ScopedStore` class wraps the shared `Store` and automatically filters all task, session, and memory operations by `agent_id`. This avoids requiring every caller to pass `agent_id` explicitly:
+The `ScopedStore` class wraps the shared `Store` and automatically filters all task and session operations by `agent_id`. This avoids requiring every caller to pass `agent_id` explicitly:
 
 ```python
 class ScopedStore:
@@ -472,7 +451,6 @@ class ScopedStore:
 
     # Scoped: create_task, get_latest_task, get_running_task, list_tasks, ...
     # Scoped: get_or_create_session, reset_session, mark_session_initialized, ...
-    # Scoped: create_memory, get_recent_memories, get_keyword_matched_memories, ...
     # Delegated: get_kv, set_kv, list_all_cron_jobs, update_task_status, ...
 ```
 
@@ -567,7 +545,7 @@ When a task is enqueued while another task is already running, the executor send
 
 Recurring task scheduling is handled by Claude Code's `claude-code-scheduler` MCP plugin. Users describe schedules in natural language (e.g., "every day at 9am run the tests"), and Claude sets up the schedule via the MCP tool. No custom cron parsing or scheduler process is needed.
 
-Scheduled tasks run as standalone Claude processes outside the executor pipeline. To deliver results back to the user, each task message includes a prompt hint with the user's WeCom ID and instructions to use the `send_wecom_message` MCP tool (see Section 15). The `.mcp.json` in the working directory ensures the WeCom tools are available to all Claude processes.
+Scheduled tasks run as standalone Claude processes outside the executor pipeline. To deliver results back to the user, each task message includes a prompt hint with the user's WeCom ID and instructions to use the `send_wecom_message` MCP tool (see Section 15 for WeCom MCP details). The `.mcp.json` in the working directory ensures the WeCom tools are available to all Claude processes.
 
 ---
 
@@ -603,17 +581,18 @@ remote_control/
 │       │   └── static/
 │       │       └── dashboard.html  # Single-page dashboard UI with expandable tasks and custom tabs
 │       ├── mcp/
-│       │   ├── wecom_server.py  # Standalone MCP server (WeCom sending tools)
-│       │   └── profile_server.py  # Standalone MCP server (agent profile tools)
+│       │   ├── wecom_server.py   # Standalone MCP server (WeCom sending tools)
+│       │   ├── profile_server.py # Standalone MCP server (agent profile tools)
+│       │   └── recall_server.py  # Standalone MCP server (task recall tools)
 │       ├── core/
 │       │   ├── __init__.py
-│       │   ├── router.py        # Command router (slash commands + /memory)
-│       │   ├── executor.py      # Task queue orchestration + memory/MCP hint injection
+│       │   ├── router.py        # Command router (slash commands)
+│       │   ├── executor.py      # Task queue orchestration + MCP hint injection + task archiving
 │       │   ├── runner.py        # Agent Runner (streaming output, session retry)
 │       │   ├── notifier.py      # Failure notifications, file/image sending + StreamHandler
-│       │   ├── memory.py        # Memory utilities (keyword extraction, context building)
+│       │   ├── utils.py         # Shared utilities (clean_message)
 │       │   ├── store.py         # SQLite store (Store + ScopedStore per-agent wrapper)
-│       │   ├── models.py        # Task, Session, Memory data models
+│       │   ├── models.py        # Task, Session, CronJob data models
 │       │   └── profile.py       # Agent profile system (ProfileManager, hot-reload, audit trail)
 │       └── utils/
 │           └── __init__.py
@@ -973,7 +952,105 @@ See `docs/wecom-mcp.md` for the full installation and usage guide.
 
 ---
 
-## 16. Dashboard WebUI
+## 16. Task Recall MCP Server
+
+A standalone MCP server that exposes task history query tools for Claude Code, enabling cross-session recall of past task results.
+
+### Problem
+
+After `/new` session resets or server restarts, Claude loses conversation context. Users often ask "what was the result from yesterday?" but the native session memory cannot answer — it only knows the current conversation.
+
+### Architecture
+
+```
+┌─────────────────────┐                    ┌──────────────────┐
+│  Claude Code CLI    │  MCP tool call     │  Task Recall     │
+│  (any process)      │───────────────────►│  MCP Server      │
+│                     │                    │  (stdio)         │
+│  User: "昨天的股票   │  recall_tasks()    │                  │
+│  分析结果是什么?"    │  get_task_detail() │  → SQLite tasks  │
+│                     │◄───────────────────│  → .task-archive │
+└─────────────────────┘                    └──────────────────┘
+```
+
+### MCP Tools
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `recall_tasks` | `start_date` (YYYY-MM-DD), `end_date`, `limit` (default 20) | Browse task summaries by date range. Returns list of `{task_id, created_at, message, summary}`. Summaries are Claude-generated 📋 descriptions (150-200 chars). |
+| `get_task_detail` | `task_id` | Read full archived output from `.task-archive/{task_id}.md`. Returns complete task output for context. |
+
+### Usage Pattern
+
+1. User asks about past task: "昨天的股票分析结果是什么?"
+2. Claude calls `recall_tasks(start_date="2026-04-02", end_date="2026-04-03")` to browse summaries
+3. Claude identifies relevant task by summary
+4. Claude calls `get_task_detail(task_id="...")` to read full output
+5. Claude answers user's question with retrieved data
+
+### `.mcp.json` Registration
+
+The server is registered in `.mcp.json` during startup, alongside WeCom and profile servers:
+
+```json
+{
+  "mcpServers": {
+    "wecom": { ... },
+    "agent-profile": { ... },
+    "task-recall": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["-m", "remote_control.mcp.recall_server"],
+      "env": {
+        "AGENT_WORKING_DIR": "/path/to/working/dir",
+        "AGENT_ID": "1000002"
+      }
+    }
+  }
+}
+```
+
+### Task Archive Format
+
+Each completed task is saved as a markdown file in `.task-archive/{task_id}.md`:
+
+```markdown
+# Task: {task_message}
+
+**Task ID**: {task_id}
+**Created**: {created_at}
+**Started**: {started_at}
+**Finished**: {finished_at}
+**Duration**: {duration_seconds}s
+
+---
+
+{full_output}
+```
+
+Files are saved atomically (temp file + `os.replace()`). Archive directory is created on first use.
+
+### Summary Generation
+
+The executor prompts Claude to generate a summary after each successful task:
+
+```
+The task has completed successfully. Please provide a one-line summary
+(150-200 characters) of the key result, prefixed with 📋 emoji.
+```
+
+The summary is stored in the tasks table's `summary` field and shown in `recall_tasks` results. This enables fast browsing without reading full archives.
+
+### Design Rationale
+
+**No blind injection**: Unlike the old keyword-matching system, this approach does not prepend context to every task message. Claude queries history only when the user explicitly asks about past results. This reduces context pollution and gives Claude control over retrieval.
+
+**Cross-session persistence**: Archives and summaries survive `/new` session resets and server restarts. The recall MCP server is stateless — it reads from SQLite + filesystem on demand.
+
+**Standalone server**: The recall server is independent of the executor pipeline. It can be used by any Claude process — scheduled tasks, manual CLI invocations, or executor tasks.
+
+---
+
+## 17. Dashboard WebUI
 
 A password-protected, read-only web dashboard for monitoring the Remote Control system in real time.
 
@@ -1105,7 +1182,7 @@ This enables the dashboard to show live output and reasoning as a task runs.
 
 ---
 
-## 17. Agent Profile System
+## 18. Agent Profile System
 
 A per-agent self-configuration system that allows agents to tune their own behavior at runtime via MCP tools. Changes are persisted in `.agent-profile.yaml` in the agent's working directory with a full audit trail.
 
@@ -1136,11 +1213,6 @@ model_selection:
     - pattern: "股票|stock"
       model: "claude-sonnet-4-5"
       rationale: "Faster for simple lookups"
-
-memory:
-  keyword_match_limit: 5
-  recent_context_limit: 5
-  max_context_chars: 2000
 
 custom_commands:            # agent-defined slash commands
   morning:
