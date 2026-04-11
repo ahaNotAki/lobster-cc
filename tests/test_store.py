@@ -250,3 +250,41 @@ def test_get_latest_task_any_user(store):
 def test_get_latest_task_any_user_empty(store):
     """Empty DB returns None."""
     assert store.get_latest_task_any_user() is None
+
+
+def test_recall_tasks_by_date_range(store):
+    """recall_tasks returns tasks within the specified date range."""
+    t1 = store.create_task("user1", "s1", "old task")
+    t2 = store.create_task("user1", "s1", "recent task")
+    store.update_task_status(t1.id, TaskStatus.COMPLETED, summary="Old summary")
+    store.update_task_status(t2.id, TaskStatus.COMPLETED, summary="Recent summary")
+
+    results = store.recall_tasks(
+        time_start="2020-01-01T00:00:00",
+        time_end="2030-01-01T00:00:00",
+        limit=10,
+    )
+    assert len(results) == 2
+    assert results[0]["summary"] == "Recent summary"  # newest first
+    assert results[1]["summary"] == "Old summary"
+
+
+def test_recall_tasks_empty(store):
+    results = store.recall_tasks(
+        time_start="2020-01-01T00:00:00",
+        time_end="2030-01-01T00:00:00",
+    )
+    assert results == []
+
+
+def test_recall_tasks_respects_limit(store):
+    for i in range(10):
+        t = store.create_task("user1", "s1", f"task {i}")
+        store.update_task_status(t.id, TaskStatus.COMPLETED, summary=f"Sum {i}")
+
+    results = store.recall_tasks(
+        time_start="2020-01-01T00:00:00",
+        time_end="2030-01-01T00:00:00",
+        limit=3,
+    )
+    assert len(results) == 3

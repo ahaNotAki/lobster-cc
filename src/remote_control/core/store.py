@@ -294,6 +294,27 @@ class ScopedStore:
         self.conn.commit()
         return cursor.rowcount
 
+    def recall_tasks(self, time_start: str, time_end: str, limit: int = 30) -> list[dict]:
+        """Return completed/failed tasks in a date range for recall browsing."""
+        rows = self.conn.execute(
+            "SELECT id, message, summary, status, created_at FROM tasks "
+            "WHERE agent_id = ? AND created_at >= ? AND created_at <= ? "
+            "AND status IN (?, ?) "
+            "ORDER BY created_at DESC LIMIT ?",
+            (self._agent_id, time_start, time_end,
+             TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, limit),
+        ).fetchall()
+        return [
+            {
+                "task_id": row["id"],
+                "message": row["message"][:80],
+                "summary": row["summary"] or row["message"][:80],
+                "status": row["status"],
+                "date": row["created_at"],
+            }
+            for row in rows
+        ]
+
     # --- Scoped session operations ---
 
     def get_or_create_session(self, user_id: str, default_working_dir: str) -> Session:
