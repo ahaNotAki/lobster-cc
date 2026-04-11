@@ -18,10 +18,8 @@
 
 ## P2 — Nice to Have
 
-- [ ] **Memory keyword LIKE wildcard escape** — `extract_keywords()` doesn't escape `%` and `_` before SQL LIKE matching. One-line `re.escape` fix.
 - [ ] **Dashboard: SSE instead of 1s polling** — Replace `/api/status` polling with Server-Sent Events. ~50 lines, reduces latency and server load.
 - [ ] **Dashboard: Retry button** — Allow retrying failed tasks from the web UI instead of requiring WeCom `/retry` command.
-- [ ] **Memory keyword extraction: CJK test coverage** — `re.findall(r'[\w.]+', ...)` works for CJK by luck (Python `\w` includes Unicode). Add explicit CJK + emoji test cases.
 - [ ] **Profile template library** — Pre-built `.agent-profile.yaml` templates (finance, social, dev). Just YAML files + `lobster profile install <name>`. ~3 hours investment.
 
 ## Frozen (Shelved Disputes)

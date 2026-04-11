@@ -73,6 +73,9 @@ def _do_recall_tasks(time_range: str = "last_week", limit: int = 30) -> str:
 
 def _do_get_task_detail(task_id: str) -> str:
     """Get the full output of a past task by ID (prefix match supported)."""
+    if not task_id or not all(c.isalnum() for c in task_id):
+        return "Invalid task ID format (must be alphanumeric)."
+
     wd = _get_working_dir()
     archive_dir = Path(wd) / ".task-archive"
 

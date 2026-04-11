@@ -73,8 +73,8 @@ WeCom → [AWS relay] → aiohttp server → Command Router → Executor → Cla
 - `core/store.py` — SQLite persistence with `Store` (shared) and `ScopedStore` (per-agent). Tasks, sessions, memories isolated by `agent_id`.
 - `core/notifier.py` — Sends notifications to WeCom (only on failure). Streaming output via `StreamHandler` buffers and sends at throttled intervals (respects WeCom 30 msgs/min rate limit). `_send_text_smart` delegates to `send_text` (byte-level split with retry). Supports sending images and files.
 - `core/watchdog.py` — `ProcessWatchdog` safety net: tracks spawned claude processes by PID, kills any exceeding `watchdog_timeout_seconds` (default 20 min), updates task status and notifies user.
-- `core/profile.py` — `AgentProfile` Pydantic model and `ProfileManager` with hot-reload, audit trail, and per-agent preferences (output style, model selection, memory prefs, custom commands)
-- `core/models.py` — `Task`, `Session`, `CronJob`, and `Memory` dataclasses
+- `core/profile.py` — `AgentProfile` Pydantic model and `ProfileManager` with hot-reload, audit trail, and per-agent preferences (output style, model selection, custom commands)
+- `core/models.py` — `Task` and `Session` dataclasses
 - `mcp/wecom_server.py` — Standalone MCP server exposing WeCom message/image/file sending as tools for Claude Code
 - `mcp/profile_server.py` — Standalone MCP server exposing agent self-configuration tools (`get_agent_config`, `set_agent_config`, `list_agent_config`, `reset_agent_config`)
 - `config.py` — Pydantic-validated YAML config loading (supports single or multiple WeCom agents)
