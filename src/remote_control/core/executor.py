@@ -17,6 +17,15 @@ from remote_control.core.store import Store
 logger = logging.getLogger(__name__)
 
 
+def _extract_summary(output: str) -> str:
+    """Extract 📋 summary line from Claude's output. Returns empty string if not found."""
+    for line in reversed(output.strip().split("\n")):
+        stripped = line.strip()
+        if stripped.startswith("📋"):
+            return stripped[1:].strip()
+    return ""
+
+
 class Executor:
     def __init__(
         self, config: AppConfig, store: Store, notifier: Notifier, runner: AgentRunner,
@@ -139,6 +148,20 @@ class Executor:
         except Exception:
             logger.warning("Failed to save raw memory for task %s", task_id, exc_info=True)
 
+    def _archive_task(self, task_id: str, message: str, summary: str, output: str, working_dir: str) -> None:
+        """Save full task output to .task-archive/ for recall. Best-effort."""
+        try:
+            archive_dir = Path(working_dir) / ".task-archive"
+            archive_dir.mkdir(exist_ok=True)
+            (archive_dir / f"{task_id}.md").write_text(
+                f"# Task: {message[:200]}\n"
+                f"Summary: {summary}\n\n"
+                f"---\n\n{output}",
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.warning("Failed to archive task %s", task_id, exc_info=True)
+
     def _inject_wecom_hint(self, user_id: str, message: str) -> str:
         """Load per-agent system prompt from .system-prompt.md, fallback to default.
 
@@ -178,6 +201,11 @@ class Executor:
             except Exception:
                 logger.debug("Failed to load profile for hint injection, skipping")
 
+        hint += (
+            "\nTask summary: End your response with a line starting with 📋 that summarizes "
+            "what was done and the key result in one sentence (under 80 chars, same language as the user)."
+        )
+
         return f"[System: {hint}]\n\n{message}"
 
     @staticmethod
@@ -194,6 +222,8 @@ class Executor:
             f"Keep responses concise (under 1500 chars preferred). Use short paragraphs, bullet points, "
             f"and avoid long code blocks. For detailed content, save to a file and send via send_wecom_file. "
             f"Memory: If you learn something of lasting value during this task, update the project MEMORY.md file. "
+            f"Task summary: End your response with a line starting with 📋 that summarizes "
+            f"what was done and the key result in one sentence (under 80 chars, same language as the user). "
             f"Dashboard: If this task represents a new category of work, edit .dashboard-workstations.json to add a new workstation."
         )
 
@@ -261,11 +291,17 @@ class Executor:
             await stream.flush()
 
             output = result.output
-            summary = output[-self.config.agent.max_output_length:]
+
+            # Extract Claude-generated summary, fallback to first line
+            task_summary = _extract_summary(output)
+            if not task_summary:
+                first_line = output.strip().split("\n")[0] if output.strip() else ""
+                task_summary = first_line[:150]
+
             self.store.update_task_status(
-                task_id, TaskStatus.COMPLETED, output=output, summary=summary
+                task_id, TaskStatus.COMPLETED, output=output, summary=task_summary
             )
-            task.summary = summary
+            task.summary = task_summary
             task.output = output
 
             if not session.initialized:
@@ -285,7 +321,7 @@ class Executor:
                 task.error = result.error
                 await self.notifier.task_failed(task)
             else:
-                self._save_raw_memory(user_id, task_id, task.message, output)
+                self._archive_task(task_id, task.message, task_summary, output, session.working_dir)
 
         except asyncio.TimeoutError:
             logger.warning("Task %s timed out after %ds", task_id[:12],

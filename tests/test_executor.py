@@ -203,19 +203,23 @@ async def test_stop_without_start(executor):
 
 
 @pytest.mark.asyncio
-async def test_execute_task_saves_raw_memory(executor, store, mock_runner, mock_notifier, app_config):
-    """Successful task should create a raw memory entry."""
+async def test_execute_task_saves_archive(executor, store, mock_runner, mock_notifier, app_config):
+    """Successful task should create an archive file in .task-archive/."""
+    from pathlib import Path
     session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
-    mock_runner.run = AsyncMock(return_value=RunResult(exit_code=0, output="Fixed the auth bug"))
+    mock_runner.run = AsyncMock(return_value=RunResult(exit_code=0, output="Fixed the auth bug\n\n📋 Fixed auth bug"))
 
     task = store.create_task("user1", session.session_id, "fix auth bug")
     await executor._execute_task(task)
 
-    memories = store.get_recent_memories("user1", limit=10)
-    assert len(memories) == 1
-    assert "fix auth bug" in memories[0].content
-    assert "Fixed the auth bug" in memories[0].content
-    assert "auth" in memories[0].tags
+    # Verify archive file was created
+    archive_dir = Path(app_config.agent.default_working_dir) / ".task-archive"
+    archive_file = archive_dir / f"{task.id}.md"
+    assert archive_file.exists()
+    content = archive_file.read_text()
+    assert "fix auth bug" in content
+    assert "Fixed the auth bug" in content
+    assert "Fixed auth bug" in content  # summary
 
 
 @pytest.mark.asyncio
@@ -275,3 +279,30 @@ async def test_execute_task_includes_wecom_hint(executor, store, mock_runner, mo
     assert "send_wecom_message" in message_arg
     assert "user1" in message_arg
     assert "run tests" in message_arg
+
+
+# --- summary extraction ---
+
+
+def test_extract_summary_with_emoji():
+    from remote_control.core.executor import _extract_summary
+    output = "Some analysis result here.\n\n📋 A股6只持仓分析：招商轮船+6.47%最强"
+    assert _extract_summary(output) == "A股6只持仓分析：招商轮船+6.47%最强"
+
+
+def test_extract_summary_missing():
+    from remote_control.core.executor import _extract_summary
+    output = "Some output without summary line."
+    assert _extract_summary(output) == ""
+
+
+def test_extract_summary_multiline_picks_last():
+    from remote_control.core.executor import _extract_summary
+    output = "line 1\n📋 wrong one\nmore text\n📋 correct final summary"
+    assert _extract_summary(output) == "correct final summary"
+
+
+def test_extract_summary_strips_whitespace():
+    from remote_control.core.executor import _extract_summary
+    output = "output\n📋   spaced summary   \n"
+    assert _extract_summary(output) == "spaced summary"
