@@ -222,39 +222,6 @@ async def test_execute_task_saves_archive(executor, store, mock_runner, mock_not
     assert "Fixed auth bug" in content  # summary
 
 
-@pytest.mark.asyncio
-async def test_execute_task_no_memory_on_failure(executor, store, mock_runner, mock_notifier, app_config):
-    """Failed task should NOT create a memory entry."""
-    session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
-    mock_runner.run = AsyncMock(return_value=RunResult(exit_code=1, output="error", error="crashed"))
-
-    task = store.create_task("user1", session.session_id, "bad task")
-    await executor._execute_task(task)
-
-    memories = store.get_recent_memories("user1", limit=10)
-    assert len(memories) == 0
-
-
-@pytest.mark.asyncio
-async def test_execute_task_injects_memory_context(executor, store, mock_runner, mock_notifier, app_config):
-    """Task message should be augmented with memory context when memories exist."""
-    session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
-
-    # Create some prior memories
-    store.create_memory("user1", "raw", "Task: setup oauth\nResult: done", "oauth,auth")
-
-    mock_runner.run = AsyncMock(return_value=RunResult(exit_code=0, output="done"))
-
-    task = store.create_task("user1", session.session_id, "fix auth bug")
-    await executor._execute_task(task)
-
-    # Check that runner.run was called with augmented message containing context
-    call_args = mock_runner.run.call_args
-    message_arg = call_args[0][0]
-    # Should contain either context tags or the original message
-    assert "fix auth bug" in message_arg
-
-
 # --- wecom hint injection ---
 
 

@@ -200,7 +200,7 @@ class StreamHandler:
 
 def _task_label(message: str, max_len: int = 50) -> str:
     """Extract a short label from the user's original task message."""
-    from remote_control.core.memory import clean_message
+    from remote_control.core.utils import clean_message
     first_line = clean_message(message).split("\n")[0].strip()
     if len(first_line) > max_len:
         return first_line[:max_len] + "..."

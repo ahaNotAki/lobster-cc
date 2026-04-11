@@ -44,14 +44,6 @@ class StorageConfig(BaseModel):
     db_path: str = "./remote_control.db"
 
 
-class MemoryConfig(BaseModel):
-    enabled: bool = True
-    raw_summary_max_chars: int = 500
-    recent_context_limit: int = 5
-    keyword_match_limit: int = 5
-    max_context_chars: int = 2000
-
-
 class NotificationsConfig(BaseModel):
     progress_interval_seconds: int = 30
     streaming_interval_seconds: float = 10.0
@@ -69,7 +61,6 @@ class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
-    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
 
 

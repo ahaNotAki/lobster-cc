@@ -395,5 +395,5 @@ def _get_system_crontab() -> list[dict]:
 
 def _clean_message(message: str) -> str:
     """Strip system-injected prefixes from a task message."""
-    from remote_control.core.memory import clean_message
+    from remote_control.core.utils import clean_message
     return clean_message(message)

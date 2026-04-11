@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from remote_control.core.models import Memory, Session, Task, TaskStatus
+from remote_control.core.models import Session, Task, TaskStatus
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -195,15 +195,6 @@ class Store:
         self.conn.commit()
 
     @staticmethod
-    def _row_to_memory(row: sqlite3.Row) -> Memory:
-        return Memory(
-            id=row["id"], user_id=row["user_id"], type=row["type"],
-            source_task=row["source_task"] or "", content=row["content"],
-            tags=row["tags"] or "", category=row["category"] or "",
-            created_at=row["created_at"], consolidated_at=row["consolidated_at"] or "",
-        )
-
-    @staticmethod
     def _row_to_task(row: sqlite3.Row) -> Task:
         return Task(
             id=row["id"], user_id=row["user_id"], session_id=row["session_id"],
@@ -359,83 +350,3 @@ class ScopedStore:
             (working_dir, user_id, self._agent_id),
         )
         self.conn.commit()
-
-    # --- Scoped memory operations ---
-
-    def create_memory(self, user_id: str, memory_type: str, content: str, tags: str,
-                      source_task: str = "", category: str = "") -> Memory:
-        mem = Memory(user_id=user_id, type=memory_type, content=content, tags=tags,
-                     source_task=source_task, category=category)
-        self.conn.execute(
-            "INSERT INTO memories (id, user_id, agent_id, type, source_task, content, tags, category, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (mem.id, mem.user_id, self._agent_id, mem.type, mem.source_task,
-             mem.content, mem.tags, mem.category, mem.created_at),
-        )
-        self.conn.commit()
-        return mem
-
-    def get_recent_memories(self, user_id: str, limit: int = 5) -> list[Memory]:
-        rows = self.conn.execute(
-            "SELECT * FROM memories WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC LIMIT ?",
-            (user_id, self._agent_id, limit),
-        ).fetchall()
-        return [self._store._row_to_memory(row) for row in rows]
-
-    def get_consolidated_memories(self, user_id: str, limit: int = 50) -> list[Memory]:
-        rows = self.conn.execute(
-            "SELECT * FROM memories WHERE user_id = ? AND agent_id = ? AND type = 'consolidated' "
-            "ORDER BY created_at DESC LIMIT ?",
-            (user_id, self._agent_id, limit),
-        ).fetchall()
-        return [self._store._row_to_memory(row) for row in rows]
-
-    def get_keyword_matched_memories(self, user_id: str, keywords: list[str],
-                                      limit: int = 5, exclude_recent: int = 5) -> list[Memory]:
-        if not keywords:
-            return []
-        exclude_ids: list[str] = []
-        if exclude_recent > 0:
-            rows = self.conn.execute(
-                "SELECT id FROM memories WHERE user_id = ? AND agent_id = ? AND type = 'raw' "
-                "ORDER BY created_at DESC LIMIT ?",
-                (user_id, self._agent_id, exclude_recent),
-            ).fetchall()
-            exclude_ids = [row["id"] for row in rows]
-
-        cases = " + ".join("(CASE WHEN tags LIKE ? THEN 1 ELSE 0 END)" for _ in keywords)
-        like_params = [f"%{kw.replace('%', '').replace('_', '')}%" for kw in keywords]
-        exclude_clause = ""
-        exclude_params: list[str] = []
-        if exclude_ids:
-            placeholders = ",".join("?" for _ in exclude_ids)
-            exclude_clause = f" AND id NOT IN ({placeholders})"
-            exclude_params = exclude_ids
-
-        inner = (
-            f"SELECT *, ({cases}) AS relevance FROM memories "
-            f"WHERE user_id = ? AND agent_id = ? AND type = 'raw' AND consolidated_at = ''"
-            f"{exclude_clause}"
-        )
-        sql = f"SELECT * FROM ({inner}) WHERE relevance > 0 ORDER BY relevance DESC, created_at DESC LIMIT ?"
-        params = like_params + [user_id, self._agent_id] + exclude_params + [limit]
-        rows = self.conn.execute(sql, params).fetchall()
-        return [self._store._row_to_memory(row) for row in rows]
-
-    def clear_memories(self, user_id: str) -> int:
-        cursor = self.conn.execute(
-            "DELETE FROM memories WHERE user_id = ? AND agent_id = ?",
-            (user_id, self._agent_id),
-        )
-        self.conn.commit()
-        return cursor.rowcount
-
-    def get_memory_stats(self, user_id: str) -> dict:
-        row = self.conn.execute(
-            "SELECT "
-            "SUM(CASE WHEN type = 'raw' THEN 1 ELSE 0 END) as raw_count, "
-            "SUM(CASE WHEN type = 'consolidated' THEN 1 ELSE 0 END) as consolidated_count "
-            "FROM memories WHERE user_id = ? AND agent_id = ?",
-            (user_id, self._agent_id),
-        ).fetchone()
-        return {"raw_count": row["raw_count"] or 0, "consolidated_count": row["consolidated_count"] or 0}

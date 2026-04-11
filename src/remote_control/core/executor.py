@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 
 from remote_control.config import AppConfig
-from remote_control.core.memory import extract_keywords, build_context_block
 from remote_control.core.models import TaskStatus
 from remote_control.core.notifier import Notifier
 from remote_control.core.runner import AgentRunner, RunResult
@@ -90,63 +89,6 @@ class Executor:
 
             await self._execute_task(task)
 
-    def _inject_memory(self, user_id: str, message: str) -> str:
-        """Inject keyword-matched task history into the message.
-
-        Long-term knowledge lives in Claude's native MEMORY.md (auto-read by Claude Code).
-        This only injects relevant task history from SQLite for contextual recall.
-        Best-effort — failures are logged but never break task execution.
-
-        Uses profile memory prefs if profile_manager is available, otherwise falls
-        back to config.memory values (backward compatible).
-        """
-        if not self.config.memory.enabled:
-            return message
-
-        try:
-            mc = self.config.memory
-            # Override memory limits from profile if available
-            keyword_limit = mc.keyword_match_limit
-            recent_limit = mc.recent_context_limit
-            max_chars = mc.max_context_chars
-            if self.profile_manager is not None:
-                try:
-                    profile = self.profile_manager.get_profile()
-                    keyword_limit = profile.memory.keyword_match_limit
-                    recent_limit = profile.memory.recent_context_limit
-                    max_chars = profile.memory.max_context_chars
-                except Exception:
-                    logger.debug("Failed to load profile memory prefs, using config defaults")
-
-            keywords = [k for k in extract_keywords(message).split(",") if k]
-            keyword_matches = self.store.get_keyword_matched_memories(
-                user_id, keywords, limit=keyword_limit,
-                exclude_recent=recent_limit,
-            )
-            recent = self.store.get_recent_memories(user_id, limit=recent_limit)
-            context = build_context_block(recent, keyword_matches, max_chars=max_chars)
-            if context:
-                return f"{context}\n\n{message}"
-        except Exception:
-            logger.warning("Failed to inject memory context for user %s", user_id, exc_info=True)
-
-        return message
-
-    def _save_raw_memory(self, user_id: str, task_id: str, message: str, output: str) -> None:
-        """Save a raw memory entry after successful task completion.
-
-        Best-effort — failures are logged but never affect task status.
-        """
-        if not self.config.memory.enabled:
-            return
-        try:
-            mc = self.config.memory
-            truncated_output = output[-mc.raw_summary_max_chars:]
-            content = f"Task: {message}\nResult: {truncated_output}"
-            tags = extract_keywords(message)
-            self.store.create_memory(user_id, "raw", content, tags, source_task=task_id)
-        except Exception:
-            logger.warning("Failed to save raw memory for task %s", task_id, exc_info=True)
 
     def _archive_task(self, task_id: str, message: str, summary: str, output: str, working_dir: str) -> None:
         """Save full task output to .task-archive/ for recall. Best-effort."""
@@ -257,8 +199,7 @@ class Executor:
             self.dashboard_streaming["thinking"] = updated[-5000:]  # keep last 5k chars
 
         try:
-            augmented_message = self._inject_memory(user_id, task.message)
-            augmented_message = self._inject_wecom_hint(user_id, augmented_message)
+            augmented_message = self._inject_wecom_hint(user_id, task.message)
 
             # Check profile for task-type model override
             model_override = None

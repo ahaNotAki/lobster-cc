@@ -37,17 +37,3 @@ class Session:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_used_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     initialized: bool = False
-
-
-
-@dataclass
-class Memory:
-    id: str = field(default_factory=lambda: uuid4().hex[:12])
-    user_id: str = ""
-    type: str = "raw"           # 'raw' or 'consolidated'
-    source_task: str = ""
-    content: str = ""
-    tags: str = ""              # comma-separated keywords
-    category: str = ""          # for consolidated: facts/decisions/preferences/project_state
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    consolidated_at: str = ""

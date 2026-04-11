@@ -49,14 +49,6 @@ storage:
 notifications:
   progress_interval_seconds: 30
 
-# Persistent memory — task history recall + Claude self-managed MEMORY.md
-memory:
-  enabled: true                          # set false to disable memory system
-  raw_summary_max_chars: 500             # max chars from task output in raw entry
-  recent_context_limit: 5               # recent entries prepended to message
-  keyword_match_limit: 5                # keyword-matched entries prepended
-  max_context_chars: 2000               # max chars for context block
-
 # Dashboard — read-only web UI with lobster animation
 dashboard:
   enabled: false                         # set true to enable

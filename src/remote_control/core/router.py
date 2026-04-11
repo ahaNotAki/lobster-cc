@@ -18,9 +18,6 @@ HELP_TEXT = """Available commands:
 /cd <path> - Change working directory
 /output <id> - Get full output of a task
 /clear - Clear all task history
-/memory - Show memory stats
-/memory show - Show consolidated knowledge
-/memory clear - Clear all memory
 /restart - Restart Claude (reload MCP servers & plugins)
 /help - Show this help
 
@@ -51,7 +48,6 @@ class CommandRouter:
             "/cd": self._handle_cd,
             "/output": self._handle_output,
             "/clear": self._handle_clear,
-            "/memory": self._handle_memory,
             "/restart": self._handle_restart,
             "/help": self._handle_help,
         }
@@ -176,33 +172,6 @@ class CommandRouter:
     async def _handle_clear(self, user_id: str, arg: str | None) -> None:
         count = self._executor.store.clear_tasks(user_id)
         await self._executor.notifier.send_reply(user_id, f"Cleared {count} tasks.")
-
-    async def _handle_memory(self, user_id: str, arg: str | None) -> None:
-        notifier = self._executor.notifier
-        store = self._executor.store
-
-        if not arg:
-            stats = store.get_memory_stats(user_id)
-            await notifier.send_reply(
-                user_id,
-                f"Memory stats:\n"
-                f"Raw entries: {stats['raw_count']}\n"
-                f"Consolidated entries: {stats['consolidated_count']}",
-            )
-        elif arg.strip().lower() == "show":
-            memories = store.get_consolidated_memories(user_id)
-            if not memories:
-                await notifier.send_reply(user_id, "No consolidated memories yet.")
-                return
-            lines = []
-            for mem in memories:
-                lines.append(f"[{mem.category}] {mem.content}")
-            await notifier.send_reply(user_id, "\n".join(lines))
-        elif arg.strip().lower() == "clear":
-            count = store.clear_memories(user_id)
-            await notifier.send_reply(user_id, f"Cleared {count} memory entries.")
-        else:
-            await notifier.send_reply(user_id, "Usage: /memory [show|clear]")
 
     async def _handle_restart(self, user_id: str, arg: str | None) -> None:
         """Kill running claude process and reset session to force a fresh start."""
