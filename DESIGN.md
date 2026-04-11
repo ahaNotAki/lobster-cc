@@ -91,7 +91,7 @@ The server supports multiple WeCom agents simultaneously. Each agent gets its ow
 - `Notifier`
 - `ScopedStore` (agent-scoped wrapper around the shared Store)
 
-All agents share a single `Store` (SQLite database), but per-agent operations (tasks, sessions, memories) are isolated via `ScopedStore`, which auto-filters by `agent_id` on all queries. Global operations (kv, cron, task status updates) delegate to the shared store. Routes are namespaced by `agent_id`:
+All agents share a single `Store` (SQLite database), but per-agent operations (tasks, sessions) are isolated via `ScopedStore`, which auto-filters by `agent_id` on all queries. Global operations (kv, cron, task status updates) delegate to the shared store. Routes are namespaced by `agent_id`:
 - Callback: `/wecom/callback/{agent_id}`
 - Relay status: `/relay/status/{agent_id}`
 
@@ -108,7 +108,7 @@ Config can be either a single dict (backwards compatible) or a list of agents.
 | **Command Router** | Parses incoming messages: slash commands (`/status`, `/cancel`, `/clear`, etc.) are handled immediately; everything else becomes a task. Scheduling is handled by Claude Code's `scheduler` MCP plugin via natural language. |
 | **Agent Runner** | Manages Claude Code CLI subprocess. Uses `--output-format stream-json` for structured streaming. Parses `system/init`, `assistant`, and `result` events to extract thinking blocks, token usage, model info, and cost. Self-heals session mismatches by retrying with opposite `--session-id`/`--resume` flag. |
 | **Notifier** | Sends notifications to WeCom on task failure. Prepends task labels (first line of user message) to all notifications. Auto-splits text and markdown that exceed WeCom's 2048-byte limit. `StreamHandler` sends buffered output at throttled intervals with dashboard reference for real-time streaming. |
-| **Task Store** | SQLite-backed persistence for tasks, sessions, memories, and key-value pairs (e.g., relay cursor). `ScopedStore` wrapper provides per-agent isolation via `agent_id` column. |
+| **Task Store** | SQLite-backed persistence for tasks, sessions, and key-value pairs (e.g., relay cursor). `ScopedStore` wrapper provides per-agent isolation via `agent_id` column. |
 | **Dashboard** | Password-protected read-only web UI at `/dashboard`. Shows real-time agent state (idle/working/done), streaming output, thinking, model info, token usage, recent tasks, cron jobs, and configurable workstations. Multi-agent aware. |
 | **Task Archive & Recall** | Task outputs archived to `.task-archive/{task_id}.md` files. MCP server exposes `recall_tasks` and `get_task_detail` tools for cross-session retrieval. Long-term knowledge is managed by Claude via native auto-memory. |
 | **WeCom MCP Server** | Standalone stdio-based MCP server exposing `send_wecom_message`, `send_wecom_image`, `send_wecom_file` tools. Auto-configured via `.mcp.json` so all Claude processes (including scheduler-spawned) can send WeCom messages. See Section 15. |
@@ -460,7 +460,7 @@ Each agent's `Executor`, `CommandRouter`, and `Notifier` receive a `ScopedStore`
 
 Existing databases are auto-migrated on startup. The `_migrate()` method:
 1. Adds `initialized` column to `sessions` if missing.
-2. Adds `agent_id` column to `tasks` and `memories` if missing (with index).
+2. Adds `agent_id` column to `tasks` if missing (with index).
 3. Recreates `sessions` table with composite `PRIMARY KEY (user_id, agent_id)` (SQLite cannot alter PKs, so the table is recreated with data migration).
 
 ### Task Lifecycle

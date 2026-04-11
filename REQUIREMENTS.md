@@ -114,7 +114,7 @@ Users interact via natural language messages and slash commands:
 | ID | Requirement |
 |----|-------------|
 | SC1 | Agents can read and modify their own behavior profile (`.agent-profile.yaml`) at runtime via MCP tools. |
-| SC2 | Profile includes output style (language, format, length), notification preferences, model selection with task-type overrides, memory preferences, and custom commands. |
+| SC2 | Profile includes output style (language, format, length), notification preferences, model selection with task-type overrides, and custom commands. |
 | SC3 | All profile changes are persisted with an audit trail (timestamped snapshots in `.agent-profile-history/`). |
 | SC4 | Profile hot-reloads on file change (mtime-based) without server restart. |
 | SC5 | Profiles are schema-enforced (Pydantic validation) — only known keys accepted. |

@@ -70,7 +70,7 @@ WeCom → [AWS relay] → aiohttp server → Command Router → Executor → Cla
 - `core/runner.py` — Spawns `claude -p --output-format stream-json --verbose --include-partial-messages --resume <session_id>`. Supports per-task `model_override` parameter. Parses thinking blocks, text deltas, model info from stream events.
 - `core/utils.py` — Shared utilities (`clean_message`) for text processing.
 - `mcp/recall_server.py` — Standalone MCP server exposing `recall_tasks` (browse by date range) and `get_task_detail` (read full output) tools for cross-session task history recall. Archives stored in `.task-archive/`.
-- `core/store.py` — SQLite persistence with `Store` (shared) and `ScopedStore` (per-agent). Tasks, sessions, memories isolated by `agent_id`.
+- `core/store.py` — SQLite persistence with `Store` (shared) and `ScopedStore` (per-agent). Tasks and sessions isolated by `agent_id`.
 - `core/notifier.py` — Sends notifications to WeCom (only on failure). Streaming output via `StreamHandler` buffers and sends at throttled intervals (respects WeCom 30 msgs/min rate limit). `_send_text_smart` delegates to `send_text` (byte-level split with retry). Supports sending images and files.
 - `core/watchdog.py` — `ProcessWatchdog` safety net: tracks spawned claude processes by PID, kills any exceeding `watchdog_timeout_seconds` (default 20 min), updates task status and notifies user.
 - `core/profile.py` — `AgentProfile` Pydantic model and `ProfileManager` with hot-reload, audit trail, and per-agent preferences (output style, model selection, custom commands)
