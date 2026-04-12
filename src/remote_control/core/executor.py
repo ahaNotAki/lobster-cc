@@ -246,6 +246,12 @@ class Executor:
                 mi.get("total_cost_usd", 0),
             )
 
+            # Persist model_info to kv so dashboard survives restarts
+            if mi:
+                import json
+                agent_id = getattr(self.store, '_agent_id', '')
+                self.store.set_kv(f"model_info:{agent_id}", json.dumps(mi))
+
             if result.exit_code != 0 and result.error:
                 logger.warning("Task %s non-zero exit: %s", task_id[:12], result.error[:200])
                 task.error = result.error

@@ -267,7 +267,8 @@ class TestCleanMessage:
 def _make_store(running_task=None, latest_task=None, recent_tasks=None):
     """Create a mock Store."""
     store = MagicMock(spec=["get_running_task", "get_latest_task_any_user",
-                            "list_tasks_all_users", "list_all_cron_jobs"])
+                            "list_tasks_all_users", "list_all_cron_jobs",
+                            "get_kv", "conn"])
     store.get_running_task.return_value = running_task
     store.get_latest_task_any_user.return_value = latest_task
     # list_tasks_all_users returns dicts, not Task objects
@@ -280,6 +281,11 @@ def _make_store(running_task=None, latest_task=None, recent_tasks=None):
             "agent_id": "",
         })
     store.list_tasks_all_users.return_value = task_dicts
+    store.get_kv.return_value = ""
+    # Mock conn for recall_stats queries
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (0,)
+    store.conn.execute.return_value = mock_cursor
     return store
 
 

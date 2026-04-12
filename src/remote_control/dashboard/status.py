@@ -204,10 +204,18 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
             "agent_id": td.get("agent_id", ""),
         })
 
-    # Model info from runner
+    # Model info from runner (live) or kv store (persisted, survives restart)
     model_info = {}
-    if runner:
-        mi = getattr(runner, "model_info", {})
+    mi = getattr(runner, "model_info", {}) if runner else {}
+    if not mi and store:
+        import json
+        persisted = store.get_kv(f"model_info:{agent_id}", "")
+        if persisted:
+            try:
+                mi = json.loads(persisted)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    if mi:
         model_info = {
             "model": mi.get("model", ""),
             "claude_code_version": mi.get("claude_code_version", ""),

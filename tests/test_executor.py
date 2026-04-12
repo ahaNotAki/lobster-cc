@@ -47,6 +47,7 @@ def mock_runner():
     r = MagicMock()
     r.cancel = AsyncMock()
     r.is_running = False
+    r.model_info = {}
     return r
 
 

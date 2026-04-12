@@ -177,10 +177,15 @@ class TestStatusIncludesTabs:
         (tmp_path / TABS_FILE).write_text(json.dumps(tabs))
 
         store = MagicMock(spec=["get_running_task", "get_latest_task_any_user",
-                                "list_tasks_all_users", "list_all_cron_jobs"])
+                                "list_tasks_all_users", "list_all_cron_jobs",
+                                "get_kv", "conn"])
         store.get_running_task.return_value = None
         store.get_latest_task_any_user.return_value = None
         store.list_tasks_all_users.return_value = []
+        store.get_kv.return_value = ""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (0,)
+        store.conn.execute.return_value = mock_cursor
 
         result = get_agent_status(store, None, working_dir=str(tmp_path))
         assert "tabs" in result
