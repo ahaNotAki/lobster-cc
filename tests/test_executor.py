@@ -203,23 +203,17 @@ async def test_stop_without_start(executor):
 
 
 @pytest.mark.asyncio
-async def test_execute_task_saves_archive(executor, store, mock_runner, mock_notifier, app_config):
-    """Successful task should create an archive file in .task-archive/."""
-    from pathlib import Path
+async def test_execute_task_saves_summary_to_db(executor, store, mock_runner, mock_notifier, app_config):
+    """Successful task should save 📋 summary to DB tasks.summary field."""
     session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
     mock_runner.run = AsyncMock(return_value=RunResult(exit_code=0, output="Fixed the auth bug\n\n📋 Fixed auth bug"))
 
     task = store.create_task("user1", session.session_id, "fix auth bug")
     await executor._execute_task(task)
 
-    # Verify archive file was created
-    archive_dir = Path(app_config.agent.default_working_dir) / ".task-archive"
-    archive_file = archive_dir / f"{task.id}.md"
-    assert archive_file.exists()
-    content = archive_file.read_text()
-    assert "fix auth bug" in content
-    assert "Fixed the auth bug" in content
-    assert "Fixed auth bug" in content  # summary
+    saved = store.get_task(task.id)
+    assert saved.summary == "Fixed auth bug"
+    assert "Fixed the auth bug" in saved.output
 
 
 # --- wecom hint injection ---

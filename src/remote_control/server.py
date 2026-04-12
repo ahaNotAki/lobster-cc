@@ -109,7 +109,6 @@ def _write_mcp_json(config: AppConfig, wecom_config: WeComConfig) -> None:
         "command": python_bin,
         "args": ["-m", "remote_control.mcp.recall_server"],
         "env": {
-            "AGENT_WORKING_DIR": str(working_dir),
             "AGENT_ID": str(wecom_config.agent_id),
             "DB_PATH": str(Path(config.storage.db_path).resolve()),
         },

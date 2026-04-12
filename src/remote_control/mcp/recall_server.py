@@ -4,15 +4,12 @@ Standalone stdio-based MCP server registered in .mcp.json.
 Claude uses these tools to recall past task results across sessions.
 
 Configuration via environment variables (set in .mcp.json):
-    AGENT_WORKING_DIR — agent's working directory (.task-archive/ lives here)
     AGENT_ID          — agent's numeric ID (for scoped DB queries)
     DB_PATH           — path to the SQLite database
 """
 
 import os
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
 from mcp.server.fastmcp import FastMCP
 
 from remote_control.core.store import ScopedStore, Store
@@ -32,10 +29,6 @@ def _get_store() -> ScopedStore:
         _store.open()
         _scoped = ScopedStore(_store, agent_id)
     return _scoped
-
-
-def _get_working_dir() -> str:
-    return os.environ.get("AGENT_WORKING_DIR", ".")
 
 
 def _increment_counter(key: str) -> None:
@@ -86,36 +79,18 @@ def _do_recall_tasks(time_range: str = "last_week", limit: int = 30) -> str:
 
 
 def _do_get_task_detail(task_id: str) -> str:
-    """Get the full output of a past task by ID (prefix match supported)."""
+    """Get the full output of a past task by ID."""
     if not task_id or not all(c.isalnum() for c in task_id):
         return "Invalid task ID format (must be alphanumeric)."
 
-    wd = _get_working_dir()
-    archive_dir = Path(wd) / ".task-archive"
-
-    agent_id = os.environ.get("AGENT_ID", "")
-
-    # Exact match first
-    exact = archive_dir / f"{task_id}.md"
-    if exact.exists():
-        _increment_counter(f"detail_count:{agent_id}")
-        return exact.read_text(encoding="utf-8")
-
-    # Prefix match (user may pass short ID from recall_tasks)
-    if archive_dir.exists():
-        for f in archive_dir.iterdir():
-            if f.name.startswith(task_id) and f.suffix == ".md":
-                _increment_counter(f"detail_count:{agent_id}")
-                return f.read_text(encoding="utf-8")
-
-    # Fallback: check DB output field
     store = _get_store()
     task = store.get_task(task_id)
     if task and task.output:
+        agent_id = os.environ.get("AGENT_ID", "")
         _increment_counter(f"detail_count:{agent_id}")
-        return f"# Task: {task.message[:200]}\n\n---\n\n{task.output}"
+        return f"# Task: {task.message[:200]}\nSummary: {task.summary}\n\n---\n\n{task.output}"
 
-    return f"Task archive not found for ID: {task_id}"
+    return f"Task not found for ID: {task_id}"
 
 
 # --- MCP Server ---

@@ -90,19 +90,8 @@ class Executor:
             await self._execute_task(task)
 
 
-    def _archive_task(self, task_id: str, message: str, summary: str, output: str, working_dir: str) -> None:
-        """Save full task output to .task-archive/ for recall. Best-effort."""
-        try:
-            archive_dir = Path(working_dir) / ".task-archive"
-            archive_dir.mkdir(exist_ok=True)
-            (archive_dir / f"{task_id}.md").write_text(
-                f"# Task: {message[:200]}\n"
-                f"Summary: {summary}\n\n"
-                f"---\n\n{output}",
-                encoding="utf-8",
-            )
-        except Exception:
-            logger.warning("Failed to archive task %s", task_id, exc_info=True)
+    # Task archive removed — full output stored in DB (tasks.output field).
+    # Recall MCP reads directly from DB via get_task_detail fallback.
 
     def _inject_wecom_hint(self, user_id: str, message: str) -> str:
         """Load per-agent system prompt from .system-prompt.md, fallback to default.
@@ -262,7 +251,7 @@ class Executor:
                 task.error = result.error
                 await self.notifier.task_failed(task)
             else:
-                self._archive_task(task_id, task.message, task_summary, output, session.working_dir)
+                pass  # output already saved to DB by update_task_status above
 
         except asyncio.TimeoutError:
             logger.warning("Task %s timed out after %ds", task_id[:12],

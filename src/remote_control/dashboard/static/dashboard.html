@@ -365,7 +365,7 @@ function updateUI(data){
     const rcEl=document.getElementById('recall-'+i);
     if(rcEl&&rs.total_completed!=null){
       const totalRecalled=rs.recall_count+rs.detail_count;
-      rcEl.innerHTML=`📋 Recall: ${totalRecalled}/${rs.total_completed} tasks recalled (${rs.recall_ratio}%) | 📁 Archives: ${rs.archive_count} | ✅ Summaries: ${rs.tasks_with_summary}/${rs.total_completed}`;
+      rcEl.innerHTML=`📋 Recall: ${totalRecalled}/${rs.total_completed} tasks recalled (${rs.recall_ratio}%) | ✅ Summaries: ${rs.tasks_with_summary}/${rs.total_completed}`;
     }
   });
 

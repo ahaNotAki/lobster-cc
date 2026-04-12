@@ -36,19 +36,7 @@ CREATE TABLE IF NOT EXISTS kv (
     value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS memories (
-    id               TEXT PRIMARY KEY,
-    user_id          TEXT NOT NULL,
-    type             TEXT NOT NULL,
-    source_task      TEXT DEFAULT '',
-    content          TEXT NOT NULL,
-    tags             TEXT DEFAULT '',
-    category         TEXT DEFAULT '',
-    created_at       TEXT NOT NULL,
-    consolidated_at  TEXT DEFAULT ''
-);
-
-CREATE INDEX IF NOT EXISTS idx_memories_user_type ON memories(user_id, type, consolidated_at);
+-- Legacy memories table dropped (old keyword-injection system removed)
 """
 
 
@@ -80,12 +68,15 @@ class Store:
             self._conn.execute("ALTER TABLE sessions ADD COLUMN initialized INTEGER NOT NULL DEFAULT 0")
             self._conn.commit()
 
-        # Add agent_id columns if missing
-        for table in ("tasks", "memories"):
-            cols = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
-            if "agent_id" not in cols:
-                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''")
-                self._conn.commit()
+        # Add agent_id column to tasks if missing
+        task_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "agent_id" not in task_cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''")
+            self._conn.commit()
+
+        # Drop legacy memories table if it exists
+        self._conn.execute("DROP TABLE IF EXISTS memories")
+        self._conn.commit()
 
         # Create index after adding agent_id
         self._conn.execute(

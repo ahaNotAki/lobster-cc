@@ -239,15 +239,11 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
             (agent_id_str,)
         ).fetchone()[0]
 
-        # Count tasks with meaningful summaries (not empty, not just first-line fallback)
+        # Count tasks with 📋 summaries (not empty fallback)
         tasks_with_summary = store.conn.execute(
             "SELECT count(*) FROM tasks WHERE agent_id = ? AND status = 'completed' AND summary != '' AND length(summary) > 10",
             (agent_id_str,)
         ).fetchone()[0]
-
-        # Count archive files
-        archive_dir = Path(working_dir) / ".task-archive"
-        archive_count = len(list(archive_dir.glob("*.md"))) if archive_dir.exists() else 0
 
         # Recall tool usage
         recall_count = int(store.get_kv(f"recall_count:{agent_id_str}", "0"))
@@ -256,7 +252,6 @@ def get_agent_status(store: Store, runner, streaming_ref: dict | None = None,
         recall_stats = {
             "total_completed": total_completed,
             "tasks_with_summary": tasks_with_summary,
-            "archive_count": archive_count,
             "recall_count": recall_count,
             "detail_count": detail_count,
             "recall_ratio": round((recall_count + detail_count) / max(total_completed, 1) * 100, 1),

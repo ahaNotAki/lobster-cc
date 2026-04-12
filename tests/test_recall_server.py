@@ -1,7 +1,6 @@
 """Tests for the task recall MCP server."""
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -14,29 +13,25 @@ from remote_control.core.store import ScopedStore, Store
 def recall_env(tmp_path):
     """Set up environment and store for recall server tests."""
     db_path = str(tmp_path / "test.db")
-    working_dir = str(tmp_path / "workdir")
-    os.makedirs(working_dir, exist_ok=True)
 
     store = Store(db_path)
     store.open()
     scoped = ScopedStore(store, "1000002")
 
     env = {
-        "AGENT_WORKING_DIR": working_dir,
         "AGENT_ID": "1000002",
         "DB_PATH": db_path,
     }
-    yield env, store, scoped, working_dir
+    yield env, store, scoped
     store.close()
 
 
 def test_recall_tasks_formats_output(recall_env):
-    env, store, scoped, wd = recall_env
+    env, store, scoped = recall_env
     t = scoped.create_task("user1", "s1", "analyze stocks")
     store.update_task_status(t.id, TaskStatus.COMPLETED, summary="A股分析完成")
 
     with patch.dict(os.environ, env):
-        # Reset module-level singletons
         import remote_control.mcp.recall_server as rs
         rs._store = None
         rs._scoped = None
@@ -46,41 +41,25 @@ def test_recall_tasks_formats_output(recall_env):
     assert t.id[:8] in result
 
 
-def test_get_task_detail_from_archive(recall_env):
-    env, store, scoped, wd = recall_env
-    task_id = "test123"
-    archive_dir = Path(wd) / ".task-archive"
-    archive_dir.mkdir()
-    (archive_dir / f"{task_id}.md").write_text("# Full output here\nDetails...")
+def test_get_task_detail_from_db(recall_env):
+    """get_task_detail reads full output from DB."""
+    env, store, scoped = recall_env
+    t = scoped.create_task("user1", "s1", "analyze stocks")
+    store.update_task_status(t.id, TaskStatus.COMPLETED, output="Full output here\nDetails...", summary="A股分析")
 
     with patch.dict(os.environ, env):
         import remote_control.mcp.recall_server as rs
         rs._store = None
         rs._scoped = None
-        result = rs._do_get_task_detail(task_id)
+        result = rs._do_get_task_detail(t.id)
 
     assert "Full output here" in result
     assert "Details..." in result
-
-
-def test_get_task_detail_prefix_match(recall_env):
-    env, store, scoped, wd = recall_env
-    task_id = "abcdef123456"
-    archive_dir = Path(wd) / ".task-archive"
-    archive_dir.mkdir()
-    (archive_dir / f"{task_id}.md").write_text("# Prefix matched content")
-
-    with patch.dict(os.environ, env):
-        import remote_control.mcp.recall_server as rs
-        rs._store = None
-        rs._scoped = None
-        result = rs._do_get_task_detail("abcdef12")  # prefix
-
-    assert "Prefix matched content" in result
+    assert "A股分析" in result
 
 
 def test_get_task_detail_not_found(recall_env):
-    env, store, scoped, wd = recall_env
+    env, store, scoped = recall_env
     with patch.dict(os.environ, env):
         import remote_control.mcp.recall_server as rs
         rs._store = None
@@ -90,8 +69,19 @@ def test_get_task_detail_not_found(recall_env):
     assert "not found" in result.lower()
 
 
+def test_get_task_detail_invalid_id(recall_env):
+    env, store, scoped = recall_env
+    with patch.dict(os.environ, env):
+        import remote_control.mcp.recall_server as rs
+        rs._store = None
+        rs._scoped = None
+        result = rs._do_get_task_detail("../etc/passwd")
+
+    assert "invalid" in result.lower()
+
+
 def test_recall_tasks_empty(recall_env):
-    env, store, scoped, wd = recall_env
+    env, store, scoped = recall_env
     with patch.dict(os.environ, env):
         import remote_control.mcp.recall_server as rs
         rs._store = None
