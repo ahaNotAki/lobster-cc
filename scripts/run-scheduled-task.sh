@@ -127,15 +127,30 @@ trap '_finish_cron 1' EXIT
 # cd to working dir so claude picks up the correct per-agent .mcp.json
 cd "$WORKING_DIR"
 
-"${CMD[@]}" >> "$LOG_FILE" 2>&1
-EXIT_CODE=$?
+# Run with retry: if first attempt fails, wait and retry once
+MAX_ATTEMPTS=2
+RETRY_DELAY=30
+
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+    "${CMD[@]}" >> "$LOG_FILE" 2>&1
+    EXIT_CODE=$?
+
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        break
+    fi
+
+    if [[ $attempt -lt $MAX_ATTEMPTS ]]; then
+        echo "[$(date)] Attempt $attempt failed (exit code $EXIT_CODE), retrying in ${RETRY_DELAY}s..." >> "$LOG_FILE"
+        sleep "$RETRY_DELAY"
+    fi
+done
 
 # Normal exit: call finish with actual exit code, then disable the trap
 _finish_cron "$EXIT_CODE"
 trap - EXIT
 
 if [[ $EXIT_CODE -ne 0 ]]; then
-    echo "[$(date)] Task $TASK_NAME failed with exit code $EXIT_CODE" >> "$LOG_FILE"
+    echo "[$(date)] Task $TASK_NAME failed after $MAX_ATTEMPTS attempts (exit code $EXIT_CODE)" >> "$LOG_FILE"
     if [[ -n "$NOTIFY_FAIL_SCRIPT" && -x "$NOTIFY_FAIL_SCRIPT" ]]; then
         "$NOTIFY_FAIL_SCRIPT" "$TASK_NAME" "$LOG_FILE" >> "$LOG_FILE" 2>&1 || true
     fi
