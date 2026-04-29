@@ -11,6 +11,10 @@ from remote_control.core.router import CommandRouter, HELP_TEXT
 def mock_executor():
     executor = MagicMock()
     executor.store = MagicMock()
+    executor.store._agent_id = "1000002"
+    executor.runner = MagicMock()
+    # Real dict so .clear() works and assertions can inspect it
+    executor.runner.model_info = {"model": "old-model", "context_window": 200000}
     executor.notifier = MagicMock()
     executor.notifier.send_reply = AsyncMock()
     executor.enqueue_task = AsyncMock()
@@ -198,6 +202,28 @@ async def test_new_session(router, mock_executor):
     mock_executor.store.reset_session.assert_called_once_with("user1", "/test")
     msg = mock_executor.notifier.send_reply.call_args[0][1]
     assert "new-uuid" in msg
+
+
+@pytest.mark.asyncio
+async def test_new_session_clears_model_info(router, mock_executor):
+    """After /new the dashboard must not show the prior session's model state."""
+    mock_executor.store.reset_session.return_value = Session(
+        user_id="user1", session_id="new-uuid-1234"
+    )
+    await router.route("user1", "/new")
+    assert mock_executor.runner.model_info == {}
+    mock_executor.store.set_kv.assert_called_once_with("model_info:1000002", "")
+
+
+@pytest.mark.asyncio
+async def test_restart_clears_model_info(router, mock_executor):
+    mock_executor.store.get_running_task.return_value = None
+    mock_executor.store.reset_session.return_value = Session(
+        user_id="user1", session_id="restart-uuid-5678"
+    )
+    await router.route("user1", "/restart")
+    assert mock_executor.runner.model_info == {}
+    mock_executor.store.set_kv.assert_called_once_with("model_info:1000002", "")
 
 
 # --- /cd ---

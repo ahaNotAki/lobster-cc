@@ -134,10 +134,22 @@ class CommandRouter:
             lines.append(f"#{t.id} [{t.status.value}] {t.message[:60]}")
         await self._executor.notifier.send_reply(user_id, "\n".join(lines))
 
+    def _reset_model_info(self) -> None:
+        """Clear in-memory runner.model_info and persisted kv entry.
+
+        Otherwise the dashboard keeps showing the prior session's model,
+        context size, and cumulative counters until the new session's first
+        `result` event arrives.
+        """
+        self._executor.runner.model_info.clear()
+        agent_id = getattr(self._executor.store, "_agent_id", "")
+        self._executor.store.set_kv(f"model_info:{agent_id}", "")
+
     async def _handle_new(self, user_id: str, arg: str | None) -> None:
         session = self._executor.store.reset_session(
             user_id, self._executor.config.agent.default_working_dir
         )
+        self._reset_model_info()
         await self._executor.notifier.send_reply(
             user_id, f"New session started: {session.session_id[:8]}..."
         )
@@ -184,6 +196,7 @@ class CommandRouter:
         session = self._executor.store.reset_session(
             user_id, self._executor.config.agent.default_working_dir
         )
+        self._reset_model_info()
         await notifier.send_reply(
             user_id,
             f"Claude restarted. New session: {session.session_id[:8]}...\n"
