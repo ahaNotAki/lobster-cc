@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Update related docs after every change.
 - Run all tests to ensure pass after every change.
 - For every code change, ask yourself "is this change make the architecture worse or better?", if worse, find a way to become better.
+- Do not run autology skills (`autology-workflow`, `capture-knowledge`, `sync-knowledge`, `triage-knowledge`) in this project. `docs/` is hand-curated and should not receive auto-captured knowledge.
 
 ## Project Overview
 
