@@ -135,6 +135,8 @@ class AgentRunner:
         msg_preview = message[:80].replace("\n", " ")
         logger.info("Running: %s %s %s... msg=%s (cwd=%s)",
                      cmd[0], mode, session_id[:8], msg_preview, working_dir)
+        # Full argv (without the trailing prompt) for diagnosing /new session fallback
+        logger.info("Spawn argv: %s", cmd[:-1])
 
         self._process = await asyncio.create_subprocess_exec(
             *cmd,

@@ -280,6 +280,7 @@ ExecStart=/bin/bash -c 'exec $REMOTE_DIR/.venv/bin/python -m remote_control.main
 Restart=always
 RestartSec=5
 Environment=HOME=/home/$REMOTE_USER
+Environment=PATH=/home/$REMOTE_USER/.local/node18/bin:/home/$REMOTE_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
