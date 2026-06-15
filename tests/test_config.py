@@ -160,3 +160,18 @@ def test_wecom_config_defaults():
     assert config.relay_url == ""
     assert config.relay_poll_interval_seconds == 5.0
     assert config.name == ""
+
+
+def test_wecom_config_relay_token_defaults_empty():
+    cfg = WeComConfig(
+        corp_id="c", agent_id=1, secret="s", token="t", encoding_aes_key="k",
+    )
+    assert cfg.relay_token == ""
+
+
+def test_wecom_config_relay_token_set():
+    cfg = WeComConfig(
+        corp_id="c", agent_id=1, secret="s", token="t", encoding_aes_key="k",
+        relay_token="bearer-secret-xyz",
+    )
+    assert cfg.relay_token == "bearer-secret-xyz"

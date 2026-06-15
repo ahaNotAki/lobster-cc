@@ -17,6 +17,7 @@ class WeComConfig(BaseModel):
     mode: str = "relay"  # "relay" or "callback"
     relay_url: str = ""  # URL of the relay service (required for relay mode)
     relay_poll_interval_seconds: float = 5.0
+    relay_token: str = ""  # Bearer token for authenticating to the self-hosted relay's /messages/fetch
     proxy: str = ""  # SOCKS5 proxy for outbound API calls, e.g. "socks5://127.0.0.1:1080"
     working_dir: str = ""  # Per-agent working dir override (falls back to agent.default_working_dir)
     streaming_interval: float = 0  # Per-agent override (0 = use global notifications.streaming_interval_seconds)
