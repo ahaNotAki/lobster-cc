@@ -82,14 +82,14 @@ FETCH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 # Single-agent:
 RELAY_FETCH_TOKEN="$FETCH_TOKEN" WECOM_TOKEN="<token>" WECOM_AES_KEY="<aes>" \
 ./scripts/setup-self-relay.sh \
-    --host ec2-user@18.142.75.174 --sg-id sg-xxxxxxxx --relay-port 8443 \
+    --host ec2-user@<relay-elastic-ip> --sg-id sg-xxxxxxxx --relay-port 8443 \
     --wecom-ips "<cidr1>,<cidr2>,..." --ssh-key ~/.ssh/rc-proxy-key.pem
 
 # Multi-agent: pass per-agent creds as JSON instead of WECOM_TOKEN/WECOM_AES_KEY:
 RELAY_FETCH_TOKEN="$FETCH_TOKEN" \
 AGENT_CONFIGS='{"1000002":{"token":"t2","aes_key":"k2"},"1000003":{"token":"t3","aes_key":"k3"}}' \
 ./scripts/setup-self-relay.sh \
-    --host ec2-user@18.142.75.174 --sg-id sg-xxxxxxxx --relay-port 8443 \
+    --host ec2-user@<relay-elastic-ip> --sg-id sg-xxxxxxxx --relay-port 8443 \
     --wecom-ips "<cidr1>,<cidr2>" --ssh-key ~/.ssh/rc-proxy-key.pem
 ```
 
@@ -117,7 +117,7 @@ Use `--dry-run` to preview the actions without touching AWS or the host.
 ```yaml
 wecom:
   mode: "relay"
-  relay_url: "http://18.142.75.174:8443"
+  relay_url: "http://<relay-elastic-ip>:8443"
   relay_token: "<the FETCH_TOKEN from above>"
 ```
 

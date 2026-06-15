@@ -21,7 +21,7 @@ and **no fetch-later API**. Official guidance: do not hard-depend on callbacks.
 
 ## Decision
 Adopt **Option C**: a small self-hosted aiohttp relay on the existing always-on
-EC2 box (Elastic IP `18.142.75.174`). It buffers raw callbacks in short-TTL SQLite
+EC2 box (Elastic IP (e.g. the EC2 box)). It buffers raw callbacks in short-TTL SQLite
 and serves them to the local poller over an authenticated `/messages/fetch`. The
 `/callback` endpoint verifies the WeCom signature **and** a 5-minute timestamp
 freshness window. The EC2 security group opens the relay port only to WeCom IP
