@@ -359,6 +359,11 @@ class TestApiStatus:
         mock_store.get_running_task.return_value = None
         mock_store.get_latest_task_any_user.return_value = None
         mock_store.list_tasks_all_users.return_value = []
+        mock_store.get_kv.return_value = "0"
+        # recall_stats does store.conn.execute(...).fetchone()[0] for counts
+        _count_cursor = MagicMock()
+        _count_cursor.fetchone.return_value = (0,)
+        mock_store.conn.execute.return_value = _count_cursor
 
         mock_runner1 = MagicMock()
         mock_runner1.is_running = False
