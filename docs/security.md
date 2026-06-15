@@ -35,8 +35,9 @@ callback payload is:
 
 - **AES-CBC encrypted** with the agent's `EncodingAESKey` (an eavesdropper sees
   only ciphertext),
-- **HMAC-signed** (`msg_signature`) over the encrypted payload (tampering or
-  forgery is detected → `403`), and
+- **signature-protected** — `msg_signature` is a SHA1 digest of the sorted
+  `token,timestamp,nonce,encrypt`; since `token` is a shared secret, tampering or
+  forgery is detected → `403`, and
 - **timestamp-bound** (replay beyond 5 minutes is rejected).
 
 WeCom officially permits HTTP on custom ports

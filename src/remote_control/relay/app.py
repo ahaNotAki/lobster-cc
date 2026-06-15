@@ -61,8 +61,20 @@ class RelayConfig:
         fetch_token = os.environ.get("RELAY_FETCH_TOKEN", "")
         if not fetch_token:
             raise ValueError("RELAY_FETCH_TOKEN environment variable is required")
+        # AGENT_CONFIGS_B64 (base64 of the JSON) is preferred: base64 has no
+        # characters that systemd's EnvironmentFile quote-parsing would mangle,
+        # unlike raw JSON with its embedded quotes/braces. AGENT_CONFIGS (raw) is
+        # still accepted as a fallback (tests, manual single-process runs).
         agent_configs: dict = {}
         raw = os.environ.get("AGENT_CONFIGS", "")
+        b64 = os.environ.get("AGENT_CONFIGS_B64", "")
+        if b64:
+            import base64
+            try:
+                raw = base64.b64decode(b64).decode("utf-8")
+            except Exception:
+                logger.warning("AGENT_CONFIGS_B64 is not valid base64; ignoring")
+                raw = ""
         if raw:
             try:
                 agent_configs = json.loads(raw)
@@ -235,8 +247,9 @@ def create_relay_app(
     async def handle_fetch(request: web.Request) -> web.Response:
         auth = request.headers.get("Authorization", "")
         expected = f"Bearer {config.fetch_token}"
-        # Constant-time compare — token is a shared secret.
-        if not hmac.compare_digest(auth, expected):
+        # Constant-time compare on bytes — token is a shared secret. Encoding to
+        # bytes avoids hmac.compare_digest's TypeError on non-ASCII header values.
+        if not hmac.compare_digest(auth.encode("utf-8", "ignore"), expected.encode("utf-8")):
             return web.Response(status=401, text="unauthorized")
         try:
             payload = await request.json()

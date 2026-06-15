@@ -102,14 +102,21 @@ echo "[3/4] Deploying relay code + systemd unit to $HOST..."
 # Only the non-secret port is substituted into the (world-readable) unit file.
 # Secrets go into a 0600 EnvironmentFile written separately below.
 SVC=$(sed -e "s|__RELAY_PORT__|$RELAY_PORT|" "$SCRIPT_DIR/templates/lobster-relay.service")
-# Build the 0600 env file content (secrets). printf %q-safe via a heredoc on the host.
+# Build the 0600 env file content (secrets). AGENT_CONFIGS is base64-encoded so
+# its embedded JSON quotes/braces survive systemd EnvironmentFile parsing intact
+# (systemd unquotes values shell-style; raw JSON would be corrupted). The relay
+# reads AGENT_CONFIGS_B64 and decodes it (see RelayConfig.from_env).
+AGENT_CONFIGS_B64=""
+if [ -n "$AGENT_CONFIGS" ]; then
+    AGENT_CONFIGS_B64=$(printf '%s' "$AGENT_CONFIGS" | base64 | tr -d '\n')
+fi
 ENV_CONTENT="RELAY_FETCH_TOKEN=${FETCH_TOKEN}
 WECOM_TOKEN=${WECOM_TOKEN}
 WECOM_AES_KEY=${WECOM_AES_KEY}
-AGENT_CONFIGS=${AGENT_CONFIGS}"
+AGENT_CONFIGS_B64=${AGENT_CONFIGS_B64}"
 if [ "$DRY_RUN" = true ]; then
     echo "  + create lobster-relay user + dirs (/opt/lobster-relay, /var/lib/lobster-relay, /etc/lobster-relay)"
-    echo "  + write 0600 /etc/lobster-relay/relay.env (RELAY_FETCH_TOKEN, WECOM_TOKEN, WECOM_AES_KEY, AGENT_CONFIGS)"
+    echo "  + write 0600 /etc/lobster-relay/relay.env (RELAY_FETCH_TOKEN, WECOM_TOKEN, WECOM_AES_KEY, AGENT_CONFIGS_B64)"
     echo "  + rsync relay code to $HOST:/opt/lobster-relay"
     echo "  + verify python deps (aiohttp, pycryptodome, defusedxml) present"
     echo "  + install systemd unit lobster-relay.service and enable --now"

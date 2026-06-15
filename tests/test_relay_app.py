@@ -105,6 +105,30 @@ def test_relay_config_requires_fetch_token(monkeypatch):
         RelayConfig.from_env()
 
 
+def test_relay_config_agent_configs_b64(monkeypatch):
+    """Multi-agent creds delivered as base64 (the systemd-safe deploy path)."""
+    import base64
+    monkeypatch.setenv("RELAY_FETCH_TOKEN", "fetch")
+    payload = '{"1000002": {"token": "t2", "aes_key": "k2"}}'
+    monkeypatch.setenv("AGENT_CONFIGS_B64", base64.b64encode(payload.encode()).decode())
+    monkeypatch.delenv("AGENT_CONFIGS", raising=False)
+    monkeypatch.delenv("WECOM_TOKEN", raising=False)
+    monkeypatch.delenv("WECOM_AES_KEY", raising=False)
+    cfg = RelayConfig.from_env()
+    assert cfg.agent_creds("1000002") == ("t2", "k2")
+
+
+def test_relay_config_b64_preferred_over_raw(monkeypatch):
+    """AGENT_CONFIGS_B64 takes precedence over raw AGENT_CONFIGS."""
+    import base64
+    monkeypatch.setenv("RELAY_FETCH_TOKEN", "fetch")
+    monkeypatch.setenv("AGENT_CONFIGS", '{"1000002": {"token": "RAW", "aes_key": "RAW"}}')
+    b64 = base64.b64encode(b'{"1000002": {"token": "B64", "aes_key": "B64"}}').decode()
+    monkeypatch.setenv("AGENT_CONFIGS_B64", b64)
+    cfg = RelayConfig.from_env()
+    assert cfg.agent_creds("1000002") == ("B64", "B64")
+
+
 # --- Handlers ---
 
 
