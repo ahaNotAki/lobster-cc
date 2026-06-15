@@ -12,6 +12,7 @@ messages legitimately buffered during a local outage.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -31,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
+    -- AUTOINCREMENT is load-bearing: it guarantees seq is never reused after
+    -- purge_expired() deletes rows. The local poller stores its position as a
+    -- seq cursor; reusing a seq (plain INTEGER PRIMARY KEY / ROWID would) could
+    -- make the poller skip or re-read messages. Do not "simplify" this away.
     seq          INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_id     TEXT NOT NULL DEFAULT '',
     body         TEXT NOT NULL,
@@ -82,7 +87,14 @@ class RelayConfig:
 
 
 class RelayStore:
-    """SQLite-backed buffer for raw WeCom callbacks. WAL mode, short TTL."""
+    """SQLite-backed buffer for raw WeCom callbacks. WAL mode, short TTL.
+
+    Concurrency contract: every method is synchronous and runs on the single
+    aiohttp event-loop thread (handlers + the purge task). This is what makes
+    commit-per-write safe without locking. Do not `await` mid-transaction or
+    move these calls to a thread executor without adding locking and
+    check_same_thread=False.
+    """
 
     def __init__(self, db_path: str, ttl_seconds: int = 172800):
         self._db_path = db_path
@@ -155,6 +167,7 @@ def create_relay_app(
 ) -> web.Application:
     """Build the relay aiohttp app. now_fn injectable for tests."""
     now_fn = now_fn or (lambda: int(time.time()))
+    owns_store = store is None
     if store is None:
         store = RelayStore(config.db_path, ttl_seconds=config.ttl_days * 86400)
         store.open()
@@ -205,27 +218,35 @@ def create_relay_app(
         agent_id = request.match_info.get("agent_id", "")
         params = request.query
         token, aes_key = config.agent_creds(agent_id)
-        if not token:
+        if not token or not aes_key:
             return web.Response(status=403, text="unknown agent")
         echostr = params.get("echostr", "")
         if not verify_signature(token, params.get("timestamp", ""),
                                 params.get("nonce", ""), echostr,
                                 params.get("msg_signature", "")):
             return web.Response(status=403, text="invalid signature")
-        decrypted = decrypt_message(aes_key, echostr)
+        try:
+            decrypted = decrypt_message(aes_key, echostr)
+        except Exception:
+            logger.warning("Failed to decrypt echostr during verify (agent=%s)", agent_id)
+            return web.Response(status=403, text="invalid echostr")
         return web.Response(text=decrypted.content)
 
     async def handle_fetch(request: web.Request) -> web.Response:
         auth = request.headers.get("Authorization", "")
         expected = f"Bearer {config.fetch_token}"
-        if auth != expected:
+        # Constant-time compare — token is a shared secret.
+        if not hmac.compare_digest(auth, expected):
             return web.Response(status=401, text="unauthorized")
         try:
             payload = await request.json()
         except Exception:
             payload = {}
-        cursor = int(payload.get("cursor") or 0)
-        limit = min(int(payload.get("limit", 100)), 100)
+        try:
+            cursor = int(payload.get("cursor") or 0)
+            limit = max(1, min(int(payload.get("limit", 100)), 100))
+        except (TypeError, ValueError):
+            return web.Response(status=400, text="bad cursor or limit")
         messages, next_cursor = store.fetch(cursor=cursor, limit=limit)
         return web.json_response({"messages": messages, "next_cursor": next_cursor})
 
@@ -268,5 +289,10 @@ def create_relay_app(
 
         app.on_startup.append(_purge_loop)
         app.on_cleanup.append(_stop_purge)
+
+    if owns_store:
+        async def _close_store(_app):
+            store.close()
+        app.on_cleanup.append(_close_store)
 
     return app

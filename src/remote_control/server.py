@@ -42,6 +42,12 @@ def _create_message_source(
             raise ValueError(
                 f"wecom.relay_url is required when mode is 'relay' (agent_id={wecom_config.agent_id})."
             )
+        if not wecom_config.relay_token:
+            raise ValueError(
+                f"wecom.relay_token is required when mode is 'relay' (agent_id={wecom_config.agent_id}). "
+                f"The self-hosted relay authenticates /messages/fetch with a Bearer token; "
+                f"set it to the relay's RELAY_FETCH_TOKEN. See docs/self-hosted-relay.md."
+            )
         return RelayPollingSource(
             wecom_config, wecom_config.relay_url, on_message,
             store=store,

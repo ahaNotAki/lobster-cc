@@ -55,3 +55,22 @@ def test_audit_passes_when_port_in_range_but_restricted(tmp_path):
     r = subprocess.run(["bash", str(SCRIPT), "--sg-id", "sg-1", "--relay-port", "8443"],
                        env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_audit_fails_when_relay_port_open_ipv6(tmp_path):
+    """IPv6 ::/0 on the relay port must also fail the gate."""
+    perms = '[{"FromPort":8443,"ToPort":8443,"Ipv6Ranges":[{"CidrIpv6":"::/0"}]}]'
+    env = _fake_aws(tmp_path, perms)
+    r = subprocess.run(["bash", str(SCRIPT), "--sg-id", "sg-1", "--relay-port", "8443"],
+                       env=env, capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "8443" in (r.stdout + r.stderr)
+
+
+def test_audit_fails_when_all_protocols_open(tmp_path):
+    """An IpProtocol '-1' (all ports) rule open to the world must fail."""
+    perms = '[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]'
+    env = _fake_aws(tmp_path, perms)
+    r = subprocess.run(["bash", str(SCRIPT), "--sg-id", "sg-1", "--relay-port", "8443"],
+                       env=env, capture_output=True, text=True)
+    assert r.returncode != 0

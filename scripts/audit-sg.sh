@@ -38,13 +38,18 @@ perms = json.load(sys.stdin)
 port = int(os.environ['PORT'])
 bad = False
 for p in perms:
+    proto = p.get('IpProtocol')
     fr, to = p.get('FromPort'), p.get('ToPort')
-    if fr is None or to is None:
+    # IpProtocol '-1' = all protocols/all ports (FromPort/ToPort absent).
+    covers = (proto == '-1') or (fr is not None and to is not None and fr <= port <= to)
+    if not covers:
         continue
-    if fr <= port <= to:
-        for r in p.get('IpRanges', []):
-            if r.get('CidrIp') == '0.0.0.0/0':
-                bad = True
+    for r in p.get('IpRanges', []):
+        if r.get('CidrIp') == '0.0.0.0/0':
+            bad = True
+    for r in p.get('Ipv6Ranges', []):
+        if r.get('CidrIpv6') == '::/0':
+            bad = True
 print('OPEN' if bad else 'OK')
 ")
     if [ "$open" = "OPEN" ]; then

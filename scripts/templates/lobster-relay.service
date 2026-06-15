@@ -6,10 +6,10 @@ After=network.target
 Type=simple
 User=lobster-relay
 Group=lobster-relay
-Environment=RELAY_FETCH_TOKEN=__FETCH_TOKEN__
-Environment=WECOM_TOKEN=__WECOM_TOKEN__
-Environment=WECOM_AES_KEY=__WECOM_AES_KEY__
-Environment=AGENT_CONFIGS=__AGENT_CONFIGS__
+# Secrets (RELAY_FETCH_TOKEN, WECOM_TOKEN, WECOM_AES_KEY, AGENT_CONFIGS) live in
+# this 0600 file owned by lobster-relay — NOT inline here (the unit file is
+# world-readable). Non-secret tunables stay inline below.
+EnvironmentFile=/etc/lobster-relay/relay.env
 Environment=RELAY_DB_PATH=/var/lib/lobster-relay/relay.db
 Environment=RELAY_PORT=__RELAY_PORT__
 Environment=PYTHONPATH=/opt/lobster-relay
@@ -19,7 +19,6 @@ ExecStart=/usr/bin/python3 -m remote_control.relay
 WorkingDirectory=/opt/lobster-relay
 Restart=always
 RestartSec=10
-OnFailure=lobster-relay-alert@%n.service
 
 [Install]
 WantedBy=multi-user.target

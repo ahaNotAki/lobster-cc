@@ -9,8 +9,8 @@ WeCom relay that replaced the AWS API Gateway + Lambda + DynamoDB stack (see
 | Layer | Mechanism | Where |
 |-------|-----------|-------|
 | 1. Network | EC2 security group opens the relay port **only to WeCom callback IP ranges** (never `0.0.0.0/0`). Enforced by `scripts/setup-self-relay.sh` (refuses `0.0.0.0/0`) and gated by `scripts/audit-sg.sh`. | EC2 SG |
-| 2a. `/callback` | WeCom signature verification (SHA1 over sorted `token,timestamp,nonce,encrypt`) **plus** 5-minute timestamp freshness. Invalid/stale/empty → `403`. | Relay app |
-| 2b. `/messages/fetch` | `Authorization: Bearer <fetch_token>` (32-byte random shared secret). Missing/wrong → `401`. | Relay app |
+| 2a. `/callback` | WeCom signature verification (SHA1 of the sorted `token,timestamp,nonce,encrypt` — the `token` is the shared secret) **plus** 5-minute timestamp freshness. Invalid/stale/empty/unknown-agent → `403`. The raw XML is parsed with `defusedxml` (entity-expansion / XXE hardening) before verification. | Relay app |
+| 2b. `/messages/fetch` | `Authorization: Bearer <fetch_token>` (32-byte random shared secret, compared with `hmac.compare_digest`). Missing/wrong → `401`. | Relay app |
 
 The IP allowlist is the mandatory first layer; cryptographic auth is the second.
 Neither alone is the only thing standing between the internet and the relay.
@@ -52,12 +52,14 @@ The WeCom callback URL then becomes `https://<name>:<port>/callback/<agent_id>`.
 ## Bearer token rotation (manual, Phase 1)
 
 The `/messages/fetch` Bearer token is a shared secret stored in two places: the
-relay's systemd env (`RELAY_FETCH_TOKEN`) on EC2, and the local `config.yaml`
-(`wecom.relay_token`). To rotate:
+relay's secrets file (`RELAY_FETCH_TOKEN` in `/etc/lobster-relay/relay.env`, mode
+`0600`, owned by `lobster-relay`) on EC2, and the local `config.yaml`
+(`wecom.relay_token`). The systemd unit itself is secret-free (world-readable);
+all secrets live only in the `0600` `EnvironmentFile`. To rotate:
 
 1. Generate a new secret: `python3 -c "import secrets; print(secrets.token_hex(32))"`
-2. On EC2: update `RELAY_FETCH_TOKEN` in `/etc/systemd/system/lobster-relay.service`,
-   then `sudo systemctl daemon-reload && sudo systemctl restart lobster-relay`.
+2. On EC2: update `RELAY_FETCH_TOKEN` in `/etc/lobster-relay/relay.env`,
+   then `sudo systemctl restart lobster-relay`.
 3. Locally: set `wecom.relay_token` in `config.yaml`, restart the lobster server.
 
 Brief overlap is fine: the local poller simply gets `401` until both sides match,

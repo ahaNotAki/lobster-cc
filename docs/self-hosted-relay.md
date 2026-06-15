@@ -47,21 +47,41 @@ Re-check quarterly — the ranges can change. Update the SG rules if they do.
 # Generate a Bearer secret for /messages/fetch
 FETCH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
+# Single-agent:
 ./scripts/setup-self-relay.sh \
     --host ec2-user@18.142.75.174 \
     --sg-id sg-xxxxxxxx \
     --relay-port 8443 \
     --fetch-token "$FETCH_TOKEN" \
     --wecom-ips "<cidr1>,<cidr2>,..." \
+    --wecom-token "<your-wecom-token>" \
+    --wecom-aes-key "<your-encoding-aes-key>" \
     --ssh-key ~/.ssh/rc-proxy-key.pem \
     --region ap-southeast-1
+
+# Multi-agent (FinanceBot 1000002 + SocialBot 1000003): pass per-agent creds as JSON
+# instead of --wecom-token/--wecom-aes-key:
+./scripts/setup-self-relay.sh \
+    --host ec2-user@18.142.75.174 --sg-id sg-xxxxxxxx --relay-port 8443 \
+    --fetch-token "$FETCH_TOKEN" --wecom-ips "<cidr1>,<cidr2>" \
+    --agent-configs '{"1000002":{"token":"t2","aes_key":"k2"},"1000003":{"token":"t3","aes_key":"k3"}}' \
+    --ssh-key ~/.ssh/rc-proxy-key.pem
 ```
 
+You must supply WeCom credentials so the relay can verify callbacks: either
+`--wecom-token` + `--wecom-aes-key` (single-agent) **or** `--agent-configs` JSON
+(multi-agent). The script errors out if neither is given.
+
 What it does:
-1. Opens the relay port in the SG restricted to the given WeCom CIDRs (refuses `0.0.0.0/0`).
-2. Runs `scripts/audit-sg.sh` as a gate (fails if the relay port or SOCKS 1080 is open to the world).
-3. Creates a non-root `lobster-relay` user, copies relay code to `/opt/lobster-relay`,
-   installs and starts the `lobster-relay` systemd unit (`Restart=always`).
+1. Opens the relay port in the SG restricted to the given WeCom CIDRs (refuses `0.0.0.0/0`, `::/0`, and malformed CIDRs).
+2. Runs `scripts/audit-sg.sh` as a gate (fails if the relay port or SOCKS 1080 is open to the world over IPv4 or IPv6).
+3. Creates a non-root `lobster-relay` user, writes secrets to a `0600`
+   `/etc/lobster-relay/relay.env` (the systemd unit stays secret-free), copies
+   relay code to `/opt/lobster-relay`, verifies Python deps, and installs +
+   starts the `lobster-relay` systemd unit (`Restart=always`).
+
+Re-running is safe (idempotent): SG rule re-authorization is a no-op, code is
+re-synced, and the service is restarted — use it to push code updates.
 
 Use `--dry-run` to preview the actions without touching AWS or the host.
 
@@ -82,7 +102,10 @@ wecom:
 3. Repoint the WeCom admin-console callback URL to
    `http://<elastic-ip>:<port>/callback/<agent_id>`. WeCom issues a GET verify;
    the relay must be running.
-4. Update local `config.yaml` (`relay_url` + `relay_token`), restart the server.
+4. Update local `config.yaml`: set `relay_url` to the new relay **and**
+   `relay_token` to the `FETCH_TOKEN` from the deploy step. Restart the server.
+   **`relay_token` is now required for relay mode** — the server refuses to start
+   without it (the relay's `/messages/fetch` returns `401` otherwise).
 5. Send a WeCom message end-to-end; confirm a reply.
 6. **Wait out the old DynamoDB 7-day TTL** so any in-flight messages drain. Keep
    the old AWS relay ~1 week as rollback.
@@ -108,8 +131,11 @@ journalctl -u lobster-relay -f
 ```
 - `queue_depth` — buffered messages not yet drained by the local poller. A rising
   value means the local poller is down.
-- `rejected_count` — cumulative `403`s (bad signature / stale / unknown agent). A
-  spike suggests an attack or a config drift.
+- `rejected_count` — **cumulative** `403`s since the relay last started (bad
+  signature / stale / unknown agent); it resets only on restart. The monitor's
+  `--max-rejected` is therefore a total ceiling, not a per-minute rate — set it
+  generously (e.g. a few hundred) to allow for normal stray invalid callbacks
+  over the service's uptime, or restart-and-watch if you need a true rate.
 
 ### Monitoring cron
 Run `scripts/relay-monitor.sh` every minute and route its alert output to WeCom:
@@ -117,8 +143,8 @@ Run `scripts/relay-monitor.sh` every minute and route its alert output to WeCom:
 * * * * * /opt/lobster-relay/scripts/relay-monitor.sh --url http://127.0.0.1:8443 --max-queue 100 || /path/to/notify-wecom.sh
 ```
 Exit codes: `0` healthy, `1` unreachable, `2` threshold breached. The systemd unit
-also has `OnFailure=lobster-relay-alert@%n.service` for service-crash alerts (wire
-that unit to your notifier).
+uses `Restart=always` (with `RestartSec=10`), so a crashed relay auto-recovers in
+~10s; the cron monitor is what surfaces a sustained outage or backlog to you.
 
 ## Token rotation
 

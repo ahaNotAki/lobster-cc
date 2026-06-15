@@ -237,7 +237,62 @@ async def test_health_endpoint(relay_env):
 
 
 @pytest.mark.asyncio
+async def test_fetch_rejects_bad_cursor(relay_env):
+    now = 1_700_000_000
+    client = await _client(relay_env, now_fn=lambda: now)
+    resp = await client.post("/messages/fetch", json={"cursor": "abc", "limit": 100},
+                             headers={"Authorization": "Bearer fetch-secret"})
+    assert resp.status == 400
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_bad_timestamp(relay_env):
+    now = 1_700_000_000
+    client = await _client(relay_env, now_fn=lambda: now)
+    body, sig, _ts, nonce = _signed_callback_body(
+        "<xml><MsgType>text</MsgType><Content>hi</Content></xml>", now)
+    resp = await client.post(
+        f"/callback/1000002?msg_signature={sig}&timestamp=notanumber&nonce={nonce}",
+        data=body)
+    assert resp.status == 403
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_purge_task_registered(relay_env):
     app = create_relay_app(relay_env, now_fn=lambda: 1_700_000_000, run_purge=True)
     assert len(app.on_startup) >= 1
     assert len(app.on_cleanup) >= 1
+
+
+def test_relay_store_seq_not_reused_after_purge(tmp_path):
+    """AUTOINCREMENT seq must not be reused after a purge — protects poller cursor.
+
+    Regression guard for the load-bearing AUTOINCREMENT choice (see schema comment).
+    """
+    store = RelayStore(str(tmp_path / "relay.db"), ttl_seconds=3600)
+    store.open()
+    last = 0
+    for i in range(3):
+        last = store.put(agent_id="a", body=str(i), query_params={}, _now=1000)
+    # Purge everything (all older than TTL relative to a far-future now).
+    store.purge_expired(_now=1000 + 3600 + 1)
+    assert store.queue_depth() == 0
+    new_seq = store.put(agent_id="a", body="after-purge", query_params={})
+    assert new_seq > last  # seq advanced, never reused
+    store.close()
+
+
+def test_relay_config_multi_agent_verify_creds(monkeypatch):
+    """Multi-agent: each agent resolves its own (token, aes_key) for /callback verify."""
+    monkeypatch.setenv("RELAY_FETCH_TOKEN", "fetch")
+    monkeypatch.setenv("AGENT_CONFIGS",
+                       '{"1000002": {"token": "t2", "aes_key": "k2"}, '
+                       '"1000003": {"token": "t3", "aes_key": "k3"}}')
+    monkeypatch.delenv("WECOM_TOKEN", raising=False)
+    monkeypatch.delenv("WECOM_AES_KEY", raising=False)
+    cfg = RelayConfig.from_env()
+    assert cfg.agent_creds("1000002") == ("t2", "k2")
+    assert cfg.agent_creds("1000003") == ("t3", "k3")
+    assert cfg.agent_creds("1000099") == ("", "")
