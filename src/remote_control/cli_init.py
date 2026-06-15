@@ -17,6 +17,7 @@ wecom:
   encoding_aes_key: "{encoding_aes_key}"
   mode: "{mode}"
   relay_url: "{relay_url}"
+  relay_token: "{relay_token}"
 
 agent:
   claude_command: "claude"
@@ -100,8 +101,10 @@ def init_config() -> None:
     # Message source mode
     mode = _prompt("  Mode (relay / callback)", default="relay")
     relay_url = ""
+    relay_token = ""
     if mode == "relay":
-        relay_url = _prompt("  Relay URL")
+        relay_url = _prompt("  Relay URL (e.g. http://<elastic-ip>:8443)")
+        relay_token = _prompt("  Relay Bearer token (the relay's RELAY_FETCH_TOKEN)")
 
     # Working directory
     default_wd = os.getcwd()
@@ -136,6 +139,7 @@ def init_config() -> None:
         encoding_aes_key=encoding_aes_key,
         mode=mode,
         relay_url=relay_url,
+        relay_token=relay_token,
         working_dir=working_dir,
     )
 

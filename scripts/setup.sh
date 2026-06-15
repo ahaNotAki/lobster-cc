@@ -167,6 +167,20 @@ fi
 # ══════════════════════════════════════════════════
 # DEPLOY
 # ══════════════════════════════════════════════════
+echo "WARNING: the relay phase of this script provisions the AWS API Gateway +"
+echo "         Lambda + DynamoDB relay, which is DEPRECATED — it was flagged by"
+echo "         AppSec (APIGAuthenticationCheck) for unauthenticated endpoints."
+echo "         Use the self-hosted relay instead: provision the EC2 proxy box"
+echo "         (this script with --proxy), then run scripts/setup-self-relay.sh."
+echo "         See docs/self-hosted-relay.md. '--teardown' here is still valid."
+echo ""
+read -r -p "  Continue deploying the deprecated AWS relay anyway? [y/N] " _confirm
+case "$_confirm" in
+    y|Y|yes|YES) ;;
+    *) echo "  Aborted. See docs/self-hosted-relay.md."; exit 1 ;;
+esac
+echo ""
+
 PHASE_COUNT=5
 [ "$WITH_PROXY" = true ] && PHASE_COUNT=10
 

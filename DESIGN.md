@@ -106,7 +106,7 @@ Config can be either a single dict (backwards compatible) or a list of agents.
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Message Source** | Pluggable adapter for receiving messages. `CallbackSource` (WeCom webhook via ngrok) or `RelayPollingSource` (polls AWS Lambda relay). See Section 14. |
+| **Message Source** | Pluggable adapter for receiving messages. `CallbackSource` (WeCom webhook via ngrok) or `RelayPollingSource` (polls the self-hosted relay). See Section 14. |
 | **WeCom Gateway** | HTTP callback handler for verification, decryption, and dispatch. Used internally by `CallbackSource`. |
 | **Command Router** | Parses incoming messages: slash commands (`/status`, `/cancel`, `/clear`, etc.) are handled immediately; everything else becomes a task. Scheduling is handled by Claude Code's `scheduler` MCP plugin via natural language. |
 | **Agent Runner** | Manages Claude Code CLI subprocess. Uses `--output-format stream-json` for structured streaming. Parses `system/init`, `assistant`, and `result` events to extract thinking blocks, token usage, model info, and cost. Self-heals session mismatches by retrying with opposite `--session-id`/`--resume` flag. |
@@ -852,8 +852,8 @@ _poll_loop()  ──►  _poll_once()  ──►  _fetch_messages(url, payload)
 
 **Message flow (inbound):**
 ```
-WeCom → API Gateway → Lambda (store raw XML + query params) → DynamoDB
-Local server → poll Lambda /messages/fetch → decrypt locally → dispatch
+WeCom → relay /callback (verify sig + freshness, store) → SQLite buffer
+Local server → poll relay /messages/fetch (Bearer) → decrypt locally → dispatch
 ```
 
 **Message flow (outbound — replies):**
@@ -865,11 +865,12 @@ Local server → WeCom API (qyapi.weixin.qq.com) directly (no relay needed)
 
 ```
 POST <relay_url>/messages/fetch
+Headers:  Authorization: Bearer <relay_token>      # 401 if missing/wrong
 Request:  {"cursor": "<last_cursor>", "limit": 100}
 Response: {
     "messages": [
         {
-            "msg_id": "uuid",
+            "msg_id": "<seq>",
             "seq": 42,
             "query_params": {"msg_signature": "...", "timestamp": "...", "nonce": "..."},
             "body": "<xml><Encrypt>...</Encrypt></xml>"
@@ -880,11 +881,11 @@ Response: {
 }
 ```
 
-- **Raw pass-through**: Lambda stores encrypted XML as-is. All WeCom-specific crypto (AES decryption, signature verification) happens locally in `_dispatch_message()` via `crypto.py`.
-- **Cursor management**: Cursor is the `seq` number of the last fetched message. DynamoDB GSI enables efficient `seq > cursor` range queries. Cursor is persisted in SQLite `kv` table across restarts.
+- **Buffer, not pass-through**: the relay verifies the WeCom signature + 5-min freshness on `/callback` before storing encrypted XML; all message decryption still happens locally in `_dispatch_message()` via `crypto.py`.
+- **Cursor management**: Cursor is the `seq` number of the last fetched message. The relay's SQLite `messages` table (`seq` AUTOINCREMENT) enables efficient `seq > cursor` range queries. The local cursor is persisted in the local SQLite `kv` table across restarts.
 - **Error isolation**: `_fetch_messages()` is extracted as a separate method for testability. Decryption or handler errors in `_dispatch_message()` are caught per-message to prevent crashing the poll loop.
-- **Observability**: `GET /relay/status/{agent_id}` returns current cursor, relay URL, poll interval, and source type.
-- **TTL**: DynamoDB items auto-expire after 7 days.
+- **Observability**: local `GET /relay/status/{agent_id}` returns current cursor, relay URL, poll interval, and source type; the relay's own `GET /health` returns queue depth + rejected count.
+- **TTL**: the relay purges buffered messages older than `TTL_DAYS` (default 2) hourly.
 
 ### Source Selection (server.py)
 

@@ -66,13 +66,15 @@ class CallbackSource(MessageSource):
 class RelayPollingSource(MessageSource):
     """Receives messages by polling a relay service.
 
-    The relay service (e.g., AWS Lambda) receives raw WeCom callbacks
-    and stores them as-is (encrypted XML + query params). This source
-    polls the relay, decrypts messages locally, and dispatches them.
-    No public URL needed on the local machine.
+    The self-hosted relay (src/remote_control/relay/) verifies the WeCom
+    signature + freshness, then buffers raw callbacks (encrypted XML + query
+    params). This source polls the relay (authenticating with a Bearer
+    relay_token), decrypts messages locally, and dispatches them. No public
+    URL needed on the local machine.
 
     Relay API contract:
         POST <relay_url>/messages/fetch
+        Headers:  Authorization: Bearer <relay_token>
         Request:  {"cursor": "<last_cursor>", "limit": 100}
         Response: {
             "messages": [
