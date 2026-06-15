@@ -102,6 +102,10 @@ class RelayPollingSource(MessageSource):
 
         self._config = config
         self._relay_token = getattr(config, "relay_token", "")
+        # Route fetches through the same SOCKS proxy as WeCom API calls (if set).
+        # The proxy exits on the relay's EC2 box, so the relay is reachable at a
+        # loopback relay_url without exposing its port to the poller's public IP.
+        self._proxy = getattr(config, "proxy", "") or None
         self._relay_url = relay_url.rstrip("/")
         self._on_message = on_message
         self._store = store
@@ -169,7 +173,7 @@ class RelayPollingSource(MessageSource):
         if self._relay_token:
             headers["Authorization"] = f"Bearer {self._relay_token}"
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, proxy=self._proxy) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
         return resp.json()

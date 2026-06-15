@@ -320,6 +320,34 @@ async def test_relay_source_sends_bearer_token(wecom_config, on_message, mock_st
 
 
 @pytest.mark.asyncio
+async def test_relay_source_fetch_uses_proxy(wecom_config, on_message, mock_store):
+    """_fetch_messages routes through config.proxy (so the poll reaches the relay
+    via the SOCKS tunnel exiting on the relay's box)."""
+    import httpx
+    from unittest.mock import patch
+
+    cfg = wecom_config.model_copy(update={"relay_token": "t", "proxy": "socks5://127.0.0.1:1080"})
+    source = RelayPollingSource(cfg, "http://127.0.0.1:8443", on_message, store=mock_store)
+
+    captured = {}
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"messages": [], "next_cursor": ""}
+
+    class FakeClient:
+        def __init__(self, *a, **k): captured["proxy"] = k.get("proxy")
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, headers=None): return FakeResp()
+
+    with patch.object(httpx, "AsyncClient", FakeClient):
+        await source._fetch_messages("http://127.0.0.1:8443/messages/fetch", {"cursor": "", "limit": 100})
+
+    assert captured["proxy"] == "socks5://127.0.0.1:1080"
+
+
+@pytest.mark.asyncio
 async def test_relay_source_no_auth_header_without_token(wecom_config, on_message, mock_store):
     """No Authorization header when relay_token is empty (backwards compatible)."""
     import httpx
