@@ -291,6 +291,62 @@ async def test_relay_source_strips_trailing_slash(wecom_config, on_message, mock
 
 
 @pytest.mark.asyncio
+async def test_relay_source_sends_bearer_token(wecom_config, on_message, mock_store):
+    """_fetch_messages includes Authorization: Bearer when a token is configured."""
+    import httpx
+    from unittest.mock import patch
+
+    cfg = wecom_config.model_copy(update={"relay_token": "secret-bearer"})
+    source = RelayPollingSource(cfg, "http://relay.example.com", on_message, store=mock_store)
+
+    captured = {}
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"messages": [], "next_cursor": ""}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, headers=None):
+            captured["headers"] = headers
+            return FakeResp()
+
+    with patch.object(httpx, "AsyncClient", FakeClient):
+        await source._fetch_messages("http://relay.example.com/messages/fetch", {"cursor": "", "limit": 100})
+
+    assert captured["headers"]["Authorization"] == "Bearer secret-bearer"
+
+
+@pytest.mark.asyncio
+async def test_relay_source_no_auth_header_without_token(wecom_config, on_message, mock_store):
+    """No Authorization header when relay_token is empty (backwards compatible)."""
+    import httpx
+    from unittest.mock import patch
+
+    source = RelayPollingSource(wecom_config, "http://relay.example.com", on_message, store=mock_store)
+    captured = {}
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"messages": [], "next_cursor": ""}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, headers=None):
+            captured["headers"] = headers
+            return FakeResp()
+
+    with patch.object(httpx, "AsyncClient", FakeClient):
+        await source._fetch_messages("http://relay.example.com/messages/fetch", {"cursor": "", "limit": 100})
+
+    assert not captured["headers"]  # empty dict
+
+
+@pytest.mark.asyncio
 async def test_relay_source_restores_cursor_from_store(wecom_config, on_message):
     """Cursor should be loaded from store on init."""
     store = MagicMock()

@@ -99,6 +99,7 @@ class RelayPollingSource(MessageSource):
         from remote_control.wecom.gateway import IncomingMessage
 
         self._config = config
+        self._relay_token = getattr(config, "relay_token", "")
         self._relay_url = relay_url.rstrip("/")
         self._on_message = on_message
         self._store = store
@@ -162,8 +163,12 @@ class RelayPollingSource(MessageSource):
         """HTTP POST to the relay. Separated for testability."""
         import httpx
 
+        headers: dict[str, str] = {}
+        if self._relay_token:
+            headers["Authorization"] = f"Bearer {self._relay_token}"
+
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
         return resp.json()
 
