@@ -50,6 +50,7 @@ def relay_config(tmp_path):
             encoding_aes_key=TEST_AES_KEY,
             mode="relay",
             relay_url="http://localhost:9999",
+            relay_token="test-relay-bearer",
             relay_poll_interval_seconds=1.0,
         )],
         agent=AgentConfig(default_working_dir=str(tmp_path)),

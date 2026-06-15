@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0] — 2026-06-15
+
+### Security
+- **Self-hosted relay replaces AWS API Gateway + Lambda + DynamoDB** (AppSec finding `APIGAuthenticationCheck`: the old `/messages/fetch` and `/callback` endpoints were unauthenticated). The legacy AWS stack was torn down.
+  - New relay (`src/remote_control/relay/`): aiohttp + SQLite buffer on the existing EC2 box
+  - `/callback` verifies the WeCom signature **and** a 5-minute timestamp freshness window
+  - `/messages/fetch` requires an `Authorization: Bearer <relay_token>` shared secret
+  - Inbound port restricted to WeCom callback IPs only (never `0.0.0.0/0`); `audit-sg.sh` gate enforces this
+  - Raw callback XML parsed with `defusedxml` (entity-expansion / XXE hardening)
+  - Secrets live in a `0600` systemd `EnvironmentFile`, not the unit file
+- **`wecom.relay_token`** is now required in relay mode (the poller authenticates to the relay).
+
+### Infrastructure
+- **`deploy-self-relay.sh`**: one-command relay cutover that reads all credentials from the remote `config.yaml` (no secrets in the repo or on the command line), derives WeCom IPs via `getcallbackip`, provisions the relay (SG + venv + systemd), and health-checks it.
+- The poller routes its fetch through the configured SOCKS proxy, so the relay needs no public exposure to the poller's IP.
+- **Removed**: `relay/` (Lambda code + SAM template), `scripts/setup-relay.sh`, and `scripts/setup.sh`. EC2 proxy provisioning is now solely `scripts/setup-proxy.sh`.
+
 ## [0.2.0] — 2026-03-27
 
 ### Features

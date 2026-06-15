@@ -66,13 +66,15 @@ class CallbackSource(MessageSource):
 class RelayPollingSource(MessageSource):
     """Receives messages by polling a relay service.
 
-    The relay service (e.g., AWS Lambda) receives raw WeCom callbacks
-    and stores them as-is (encrypted XML + query params). This source
-    polls the relay, decrypts messages locally, and dispatches them.
-    No public URL needed on the local machine.
+    The self-hosted relay (src/remote_control/relay/) verifies the WeCom
+    signature + freshness, then buffers raw callbacks (encrypted XML + query
+    params). This source polls the relay (authenticating with a Bearer
+    relay_token), decrypts messages locally, and dispatches them. No public
+    URL needed on the local machine.
 
     Relay API contract:
         POST <relay_url>/messages/fetch
+        Headers:  Authorization: Bearer <relay_token>
         Request:  {"cursor": "<last_cursor>", "limit": 100}
         Response: {
             "messages": [
@@ -99,6 +101,11 @@ class RelayPollingSource(MessageSource):
         from remote_control.wecom.gateway import IncomingMessage
 
         self._config = config
+        self._relay_token = getattr(config, "relay_token", "")
+        # Route fetches through the same SOCKS proxy as WeCom API calls (if set).
+        # The proxy exits on the relay's EC2 box, so the relay is reachable at a
+        # loopback relay_url without exposing its port to the poller's public IP.
+        self._proxy = getattr(config, "proxy", "") or None
         self._relay_url = relay_url.rstrip("/")
         self._on_message = on_message
         self._store = store
@@ -162,8 +169,12 @@ class RelayPollingSource(MessageSource):
         """HTTP POST to the relay. Separated for testability."""
         import httpx
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=payload)
+        headers: dict[str, str] = {}
+        if self._relay_token:
+            headers["Authorization"] = f"Bearer {self._relay_token}"
+
+        async with httpx.AsyncClient(timeout=30, proxy=self._proxy) as client:
+            resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
         return resp.json()
 

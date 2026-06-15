@@ -10,8 +10,12 @@ import base64
 import hashlib
 
 import struct
-import xml.etree.ElementTree as ET
 from typing import NamedTuple
+
+# defusedxml hardens parsing against entity-expansion (billion-laughs) and
+# external-entity attacks. The relay parses attacker-controlled XML before the
+# signature is verified, so this must be the defused parser, not stdlib ElementTree.
+from defusedxml.ElementTree import fromstring as _xml_fromstring
 
 from Crypto.Cipher import AES
 
@@ -74,7 +78,7 @@ def encrypt_message(encoding_aes_key: str, corp_id: str, content: str) -> str:
 
 def parse_message_xml(xml_text: str) -> dict[str, str]:
     """Parse WeCom callback XML body, extracting key fields."""
-    root = ET.fromstring(xml_text)
+    root = _xml_fromstring(xml_text)
     result = {}
     for child in root:
         if child.text:

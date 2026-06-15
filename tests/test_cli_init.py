@@ -49,7 +49,8 @@ class TestInitConfig:
         monkeypatch.chdir(tmp_path)
 
         # Simulate user inputs in order:
-        # corp_id, agent_id, secret, token, aes_key, name, mode, relay_url, working_dir
+        # corp_id, agent_id, secret, token, aes_key, name, mode, relay_url,
+        # relay_token, working_dir
         inputs = iter([
             "corp123",       # Corp ID
             "1000002",       # Agent ID
@@ -59,6 +60,7 @@ class TestInitConfig:
             "test-bot",      # Name
             "relay",         # Mode
             "https://relay.example.com",  # Relay URL
+            "bearer-secret-123",  # Relay token
             str(tmp_path),   # Working dir
         ])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
@@ -76,6 +78,7 @@ class TestInitConfig:
         assert "mytoken" in content
         assert "test-bot" in content
         assert "https://relay.example.com" in content
+        assert "bearer-secret-123" in content
 
     def test_aborts_on_existing_config_no_overwrite(self, tmp_path, monkeypatch):
         """Test that existing config.yaml is not overwritten when user says no."""
@@ -107,6 +110,7 @@ class TestInitConfig:
             "test-bot",      # Name
             "relay",         # Mode
             "https://relay.example.com",  # Relay URL
+            "bearer-secret-123",  # Relay token
             str(tmp_path),   # Working dir
         ])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))

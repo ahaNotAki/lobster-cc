@@ -73,6 +73,15 @@ def test_create_message_source_relay_missing_url(app_config):
         _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
 
 
+def test_create_message_source_relay_missing_token(app_config):
+    """relay mode now requires relay_token (self-hosted relay authenticates fetch)."""
+    app_config.wecom[0].mode = "relay"
+    app_config.wecom[0].relay_url = "http://relay.example.com"
+    app_config.wecom[0].relay_token = ""
+    with pytest.raises(ValueError, match="relay_token is required"):
+        _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
+
+
 @pytest.mark.asyncio
 async def test_app_stores_references(app_config):
     app = create_app(app_config)

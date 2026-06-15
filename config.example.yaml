@@ -6,8 +6,9 @@ wecom:
   secret: "your_agent_secret"
   token: "callback_verification_token"
   encoding_aes_key: "callback_encoding_aes_key_43chars"
-  mode: "relay"  # "relay" (poll AWS Lambda relay) or "callback" (direct webhook)
-  relay_url: "https://<api-id>.execute-api.ap-southeast-1.amazonaws.com"  # required for relay mode
+  mode: "relay"  # "relay" (poll self-hosted relay) or "callback" (direct webhook)
+  relay_url: "http://<elastic-ip>:8443"  # required for relay mode; your self-hosted relay
+  relay_token: "your_relay_fetch_token"  # required for relay mode; matches the relay's RELAY_FETCH_TOKEN
   relay_poll_interval_seconds: 5.0  # only used in relay mode
   proxy: ""  # optional: SOCKS5 proxy for fixed outbound IP, e.g. "socks5://127.0.0.1:1080"
 
@@ -20,7 +21,8 @@ wecom:
 #     token: "token_1"
 #     encoding_aes_key: "aes_key_1"
 #     mode: "relay"
-#     relay_url: "https://relay-1.example.com"
+#     relay_url: "http://<elastic-ip>:8443"
+#     relay_token: "your_relay_fetch_token"   # same relay can serve both agents
 #   - name: "review"
 #     corp_id: "your_corp_id"
 #     agent_id: 1000003
@@ -28,7 +30,8 @@ wecom:
 #     token: "token_2"
 #     encoding_aes_key: "aes_key_2"
 #     mode: "relay"
-#     relay_url: "https://relay-2.example.com"
+#     relay_url: "http://<elastic-ip>:8443"
+#     relay_token: "your_relay_fetch_token"
 
 agent:
   claude_command: "claude"           # path to Claude Code CLI binary
