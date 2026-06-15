@@ -15,7 +15,9 @@ Environment=RELAY_PORT=__RELAY_PORT__
 Environment=PYTHONPATH=/opt/lobster-relay
 Environment=TTL_DAYS=2
 Environment=FRESHNESS_SECONDS=300
-ExecStart=/usr/bin/python3 -m remote_control.relay
+# Runs from a dedicated venv at /opt/lobster-relay/.venv (deps installed there by
+# setup-self-relay.sh) — avoids depending on system pip / system site-packages.
+ExecStart=/opt/lobster-relay/.venv/bin/python -m remote_control.relay
 WorkingDirectory=/opt/lobster-relay
 Restart=always
 RestartSec=10

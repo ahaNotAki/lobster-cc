@@ -102,8 +102,10 @@ What it does:
 2. Runs `scripts/audit-sg.sh` as a gate (fails if the relay port or SOCKS 1080 is open to the world over IPv4 or IPv6).
 3. Creates a non-root `lobster-relay` user, writes secrets to a `0600`
    `/etc/lobster-relay/relay.env` (the systemd unit stays secret-free), copies
-   relay code to `/opt/lobster-relay`, verifies Python deps, and installs +
-   starts the `lobster-relay` systemd unit (`Restart=always`).
+   relay code to `/opt/lobster-relay`, creates a dedicated venv at
+   `/opt/lobster-relay/.venv` and installs deps into it (no system pip), verifies
+   they import, and installs + starts the `lobster-relay` systemd unit
+   (`Restart=always`).
 
 Re-running is safe (idempotent): SG rule re-authorization is a no-op, code is
 re-synced, and the service is restarted — use it to push code updates.

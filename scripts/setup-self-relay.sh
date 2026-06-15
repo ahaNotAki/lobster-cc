@@ -125,7 +125,8 @@ if [ "$DRY_RUN" = true ]; then
     echo "  + create lobster-relay user + dirs (/opt/lobster-relay, /var/lib/lobster-relay, /etc/lobster-relay)"
     echo "  + write 0600 /etc/lobster-relay/relay.env (RELAY_FETCH_TOKEN, WECOM_TOKEN, WECOM_AES_KEY, AGENT_CONFIGS_B64)"
     echo "  + rsync relay code to $HOST:/opt/lobster-relay"
-    echo "  + verify python deps (aiohttp, pycryptodome, defusedxml) present"
+    echo "  + create venv /opt/lobster-relay/.venv + pip install aiohttp pycryptodome defusedxml"
+    echo "  + verify deps import from the venv (fail loud if not)"
     echo "  + install systemd unit lobster-relay.service and enable --now"
 else
     ssh -i "$SSH_KEY" "$HOST" "sudo useradd -r -s /usr/sbin/nologin lobster-relay 2>/dev/null || true; \
@@ -141,10 +142,16 @@ else
         "$PROJECT_DIR/src/remote_control" "$HOST:/tmp/lobster-relay-src/"
     ssh -i "$SSH_KEY" "$HOST" "sudo rm -rf /opt/lobster-relay/remote_control; \
         sudo cp -r /tmp/lobster-relay-src/remote_control /opt/lobster-relay/"
-    # Install deps; fail loudly if they can't be made present (avoids a silent crash-loop).
-    ssh -i "$SSH_KEY" "$HOST" "sudo pip3 install --quiet aiohttp pycryptodome defusedxml || true; \
-        python3 -c 'import aiohttp, Crypto.Cipher, defusedxml' || { \
-            echo 'ERROR: relay Python deps (aiohttp/pycryptodome/defusedxml) missing on host'; exit 1; }"
+    # Dedicated venv at /opt/lobster-relay/.venv — no dependency on system pip /
+    # system site-packages. Fail loudly if deps can't be installed (avoids a
+    # silent systemd crash-loop on a missing import).
+    ssh -i "$SSH_KEY" "$HOST" "set -e; \
+        sudo python3 -m venv /opt/lobster-relay/.venv; \
+        sudo /opt/lobster-relay/.venv/bin/python -m pip install --quiet --upgrade pip; \
+        sudo /opt/lobster-relay/.venv/bin/python -m pip install --quiet aiohttp pycryptodome defusedxml; \
+        sudo /opt/lobster-relay/.venv/bin/python -c 'import aiohttp, Crypto.Cipher, defusedxml' || { \
+            echo 'ERROR: relay Python deps failed to install into venv'; exit 1; }; \
+        sudo chown -R lobster-relay:lobster-relay /opt/lobster-relay"
     echo "$SVC" | ssh -i "$SSH_KEY" "$HOST" "sudo tee /etc/systemd/system/lobster-relay.service > /dev/null"
     ssh -i "$SSH_KEY" "$HOST" "sudo systemctl daemon-reload && sudo systemctl enable --now lobster-relay"
 fi
