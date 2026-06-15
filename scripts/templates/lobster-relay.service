@@ -1,0 +1,25 @@
+[Unit]
+Description=lobster-cc self-hosted WeCom relay
+After=network.target
+
+[Service]
+Type=simple
+User=lobster-relay
+Group=lobster-relay
+Environment=RELAY_FETCH_TOKEN=__FETCH_TOKEN__
+Environment=WECOM_TOKEN=__WECOM_TOKEN__
+Environment=WECOM_AES_KEY=__WECOM_AES_KEY__
+Environment=AGENT_CONFIGS=__AGENT_CONFIGS__
+Environment=RELAY_DB_PATH=/var/lib/lobster-relay/relay.db
+Environment=RELAY_PORT=__RELAY_PORT__
+Environment=PYTHONPATH=/opt/lobster-relay
+Environment=TTL_DAYS=2
+Environment=FRESHNESS_SECONDS=300
+ExecStart=/usr/bin/python3 -m remote_control.relay
+WorkingDirectory=/opt/lobster-relay
+Restart=always
+RestartSec=10
+OnFailure=lobster-relay-alert@%n.service
+
+[Install]
+WantedBy=multi-user.target
