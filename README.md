@@ -210,29 +210,23 @@ security group id (`sg-…`) it prints; you need it in 2b:
 ./scripts/setup.sh --proxy   # provisions EC2 + Elastic IP + SOCKS tunnel box
 ```
 
-**2b. Deploy the relay onto that box.** It opens the relay port to WeCom IP ranges
-only (never `0.0.0.0/0`) and installs a `Restart=always` systemd unit:
+**2b. Deploy the relay onto that box.** Once you've configured the server (step 3,
+including a `relay_token` per agent), one command orchestrates the whole cutover —
+it reads all WeCom credentials from the remote `config.yaml` (nothing secret on the
+command line), derives the WeCom callback IP ranges, provisions the relay (SG
+restricted to WeCom IPs, `Restart=always` systemd unit), health-checks it, and
+prints the exact admin-console URL(s) to register:
 
 ```bash
-FETCH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-
-# Single-agent:
-./scripts/setup-self-relay.sh \
-    --host ec2-user@<elastic-ip> --sg-id sg-xxxx \
-    --relay-port 8443 --fetch-token "$FETCH_TOKEN" \
-    --wecom-ips "<cidr1>,<cidr2>" \
-    --wecom-token "<your-wecom-token>" --wecom-aes-key "<your-aes-key>" \
+./scripts/deploy-self-relay.sh \
+    --host ec2-user@<deploy-host> --remote-dir /path/to/lobster-cc \
+    --relay-host ec2-user@<elastic-ip> --sg-id sg-xxxx \
     --ssh-key ~/.ssh/rc-proxy-key.pem
-
-# Multi-agent: replace --wecom-token/--wecom-aes-key with
-#   --agent-configs '{"1000002":{"token":"...","aes_key":"..."},"1000003":{...}}'
 ```
 
-Get the WeCom callback IP ranges from the `getcallbackip` API. Save the
-`$FETCH_TOKEN` — it goes into `config.yaml` as `relay_token` in step 3. See
-[docs/self-hosted-relay.md](docs/self-hosted-relay.md) for the full guide,
-[docs/security.md](docs/security.md) for the auth model, and
-[docs/aws-proxy.md](docs/aws-proxy.md) for the EC2 box.
+See [docs/self-hosted-relay.md](docs/self-hosted-relay.md) for the full cutover
+runbook (and a manual single-step path), [docs/security.md](docs/security.md) for
+the auth model, and [docs/aws-proxy.md](docs/aws-proxy.md) for the EC2 box.
 
 ### 3. Configure
 

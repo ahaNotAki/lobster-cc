@@ -23,11 +23,18 @@
 set -euo pipefail
 
 REGION="${AWS_DEFAULT_REGION:-ap-southeast-1}"
-HOST=""; SG_ID=""; RELAY_PORT="8443"; FETCH_TOKEN=""; WECOM_IPS=""
-WECOM_TOKEN=""; WECOM_AES_KEY=""; AGENT_CONFIGS=""
+HOST=""; SG_ID=""; RELAY_PORT="8443"; WECOM_IPS=""
 SSH_KEY="$HOME/.ssh/rc-proxy-key.pem"; DRY_RUN=false
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Secrets default to environment variables so a caller (e.g. deploy.sh) can pass
+# them WITHOUT exposing them in argv / `ps`. The matching flags still work for
+# manual single-agent runs.
+FETCH_TOKEN="${RELAY_FETCH_TOKEN:-}"
+WECOM_TOKEN="${WECOM_TOKEN:-}"
+WECOM_AES_KEY="${WECOM_AES_KEY:-}"
+AGENT_CONFIGS="${AGENT_CONFIGS:-}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

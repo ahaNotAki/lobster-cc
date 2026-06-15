@@ -41,35 +41,60 @@ GET https://qyapi.weixin.qq.com/cgi-bin/getcallbackip?access_token=ACCESS_TOKEN
 
 Re-check quarterly — the ranges can change. Update the SG rules if they do.
 
-## Deploy
+## Deploy — one command (recommended)
+
+`scripts/deploy-self-relay.sh` orchestrates the whole cutover and reads **all real
+credentials from the remote host's `config.yaml`** — nothing secret is typed on
+the command line or stored in this repo. It pulls each agent's
+corp_id/secret/token/encoding_aes_key/relay_token off the remote config, derives
+the WeCom callback IP ranges itself (via `getcallbackip`), provisions the relay,
+health-checks it, prints the exact WeCom admin-console URL(s) to register, and
+optionally restarts the local server.
+
+Prerequisite: each relay-mode agent in the remote `config.yaml` already has a
+`relay_token` set (the relay's Bearer secret — generate once with
+`python3 -c "import secrets; print(secrets.token_hex(32))"`).
 
 ```bash
-# Generate a Bearer secret for /messages/fetch
+./scripts/deploy-self-relay.sh \
+    --host ec2-user@<deploy-host> --remote-dir /home/you/lobster-cc \
+    --relay-host ec2-user@<relay-elastic-ip> --sg-id sg-xxxx \
+    --relay-port 8443 --ssh-key ~/.ssh/rc-proxy-key.pem \
+    [--restart-local] [--dry-run]
+```
+
+`--host`/`--remote-dir` is the box running lobster-cc (where `config.yaml` lives);
+`--relay-host` is the box that will run the relay — often the same EC2 box (pass
+the same SSH target for both). Single- vs multi-agent is detected from the config
+automatically. Use `--dry-run` to preview; add `--restart-local` to restart the
+remote `lobster-cc` after you confirm the WeCom URL is registered.
+
+## Deploy — manual (single step)
+
+If you prefer to run just the relay provisioning yourself, call the underlying
+script directly. Secrets can be passed as flags **or** via environment variables
+(`RELAY_FETCH_TOKEN`, `WECOM_TOKEN`, `WECOM_AES_KEY`, `AGENT_CONFIGS`) to keep them
+out of `ps`:
+
+```bash
 FETCH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
 # Single-agent:
-./scripts/setup-self-relay.sh \
-    --host ec2-user@18.142.75.174 \
-    --sg-id sg-xxxxxxxx \
-    --relay-port 8443 \
-    --fetch-token "$FETCH_TOKEN" \
-    --wecom-ips "<cidr1>,<cidr2>,..." \
-    --wecom-token "<your-wecom-token>" \
-    --wecom-aes-key "<your-encoding-aes-key>" \
-    --ssh-key ~/.ssh/rc-proxy-key.pem \
-    --region ap-southeast-1
-
-# Multi-agent (FinanceBot 1000002 + SocialBot 1000003): pass per-agent creds as JSON
-# instead of --wecom-token/--wecom-aes-key:
+RELAY_FETCH_TOKEN="$FETCH_TOKEN" WECOM_TOKEN="<token>" WECOM_AES_KEY="<aes>" \
 ./scripts/setup-self-relay.sh \
     --host ec2-user@18.142.75.174 --sg-id sg-xxxxxxxx --relay-port 8443 \
-    --fetch-token "$FETCH_TOKEN" --wecom-ips "<cidr1>,<cidr2>" \
-    --agent-configs '{"1000002":{"token":"t2","aes_key":"k2"},"1000003":{"token":"t3","aes_key":"k3"}}' \
-    --ssh-key ~/.ssh/rc-proxy-key.pem
+    --wecom-ips "<cidr1>,<cidr2>,..." --ssh-key ~/.ssh/rc-proxy-key.pem
+
+# Multi-agent: pass per-agent creds as JSON instead of WECOM_TOKEN/WECOM_AES_KEY:
+RELAY_FETCH_TOKEN="$FETCH_TOKEN" \
+AGENT_CONFIGS='{"1000002":{"token":"t2","aes_key":"k2"},"1000003":{"token":"t3","aes_key":"k3"}}' \
+./scripts/setup-self-relay.sh \
+    --host ec2-user@18.142.75.174 --sg-id sg-xxxxxxxx --relay-port 8443 \
+    --wecom-ips "<cidr1>,<cidr2>" --ssh-key ~/.ssh/rc-proxy-key.pem
 ```
 
 You must supply WeCom credentials so the relay can verify callbacks: either
-`--wecom-token` + `--wecom-aes-key` (single-agent) **or** `--agent-configs` JSON
+`WECOM_TOKEN` + `WECOM_AES_KEY` (single-agent) **or** `AGENT_CONFIGS` JSON
 (multi-agent). The script errors out if neither is given.
 
 What it does:
@@ -96,23 +121,33 @@ wecom:
 
 ## Cutover (zero message loss)
 
-1. Deploy the self-hosted relay (above).
-2. **Stop the local server** — prevents split-brain where new messages go to the
-   new relay while the poller still reads the old one.
-3. Repoint the WeCom admin-console callback URL to
-   `http://<elastic-ip>:<port>/callback/<agent_id>`. WeCom issues a GET verify;
-   the relay must be running.
-4. Update local `config.yaml`: set `relay_url` to the new relay **and**
-   `relay_token` to the `FETCH_TOKEN` from the deploy step. Restart the server.
-   **`relay_token` is now required for relay mode** — the server refuses to start
-   without it (the relay's `/messages/fetch` returns `401` otherwise).
-5. Send a WeCom message end-to-end; confirm a reply.
-6. **Wait out the old DynamoDB 7-day TTL** so any in-flight messages drain. Keep
+The orchestrator (`deploy-self-relay.sh`) does steps 1–3 and 5; only the WeCom
+admin-console registration (step 4) and the config edit are inherently manual.
+
+1. Add `relay_token` to each relay-mode agent in the remote `config.yaml` (the
+   relay's Bearer secret).
+2. Run the orchestrator (without `--restart-local` for now):
+   ```bash
+   ./scripts/deploy-self-relay.sh --host ec2-user@<deploy-host> \
+       --remote-dir /path/to/lobster-cc --relay-host ec2-user@<relay-ip> \
+       --sg-id sg-xxxx --ssh-key ~/.ssh/rc-proxy-key.pem
+   ```
+   It provisions + health-checks the relay and prints the callback URL(s).
+3. **Register the printed callback URL(s)** in the WeCom admin console
+   (接收消息 → 设置API接收). WeCom issues a GET verify; the relay is already running.
+4. Set `relay_url` to `http://<relay-ip>:<port>` in the remote `config.yaml`.
+   (`relay_token` is already there from step 1. **Both are required** — the server
+   refuses to start in relay mode without `relay_token`.)
+5. Re-run the orchestrator with `--restart-local` (it confirms the URL is
+   registered, then restarts `lobster-cc`), or restart manually:
+   `ssh <host> 'sudo systemctl restart lobster-cc'`.
+6. Send a WeCom message end-to-end; confirm a reply.
+7. **Wait out the old DynamoDB 7-day TTL** so any in-flight messages drain. Keep
    the old AWS relay ~1 week as rollback.
-7. Tear down the legacy AWS stack: `./scripts/setup-relay.sh --teardown`
+8. Tear down the legacy AWS stack: `./scripts/setup-relay.sh --teardown`
    (deletes API Gateway + Lambda + IAM role + DynamoDB).
 
-Rollback: revert the WeCom callback URL + local `config.yaml` to the old relay;
+Rollback: revert the WeCom callback URL + remote `config.yaml` to the old relay;
 the old DynamoDB buffer (7-day TTL) still holds messages.
 
 ## Operations
