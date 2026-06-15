@@ -174,7 +174,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "  + (dry-run) would curl http://127.0.0.1:$RELAY_PORT/health on $RELAY_HOST"
 else
     sleep 2
-    if ssh "$RELAY_HOST" "curl -sf --max-time 5 http://127.0.0.1:$RELAY_PORT/health >/dev/null"; then
+    if ssh -i "$SSH_KEY" "$RELAY_HOST" "curl -sf --max-time 5 http://127.0.0.1:$RELAY_PORT/health >/dev/null"; then
         echo "  Relay /health OK."
     else
         echo "  ERROR: relay /health did not respond. Check: ssh $RELAY_HOST 'journalctl -u lobster-relay -n 50'"
