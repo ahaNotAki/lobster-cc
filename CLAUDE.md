@@ -41,8 +41,12 @@ ruff check src/ tests/
 ./deploy.sh user@host [/remote/path]
 
 # Deploy with fixed outbound IP proxy
-./scripts/setup.sh --proxy                  # one-time EC2 + Elastic IP setup
+./scripts/setup-proxy.sh                    # one-time EC2 + Elastic IP setup
 ./deploy.sh user@host /path --proxy-ip <elastic-ip> --proxy-key ~/.ssh/rc-proxy-key.pem
+
+# Deploy / update the self-hosted WeCom relay (replaces the removed AWS relay)
+./scripts/deploy-self-relay.sh --host user@host --remote-dir /path \
+  --relay-host ec2-user@<elastic-ip> --sg-id <sg> --ssh-key ~/.ssh/rc-proxy-key.pem
 
 # Manage services on remote host
 ssh user@host 'systemctl status lobster-cc'           # check status

@@ -602,16 +602,12 @@ remote_control/
 │       │   └── __main__.py      # python -m remote_control.relay entry point
 │       └── utils/
 │           └── __init__.py
-├── relay/                       # Legacy AWS relay (retained for teardown only)
-│   ├── lambda_function.py       # Old AWS Lambda handler — superseded by src/.../relay/
-│   └── README.md                # Legacy AWS resource inventory + teardown
 ├── scripts/
-│   ├── setup.sh                 # Unified setup (legacy AWS relay + optional proxy)
-│   ├── setup-relay.sh           # Legacy AWS relay (DEPRECATED; --teardown still used)
-│   ├── setup-self-relay.sh      # Self-hosted relay deploy (SG → WeCom IPs, systemd)
+│   ├── deploy-self-relay.sh     # Full relay cutover orchestrator (config-driven)
+│   ├── setup-self-relay.sh      # Self-hosted relay deploy (SG → WeCom IPs, venv, systemd)
 │   ├── audit-sg.sh              # Pre-deploy gate: fail if relay/SOCKS port open to 0.0.0.0/0
 │   ├── relay-monitor.sh         # Relay health-check for cron alerting
-│   └── setup-proxy.sh           # EC2 proxy setup (separate, older script)
+│   └── setup-proxy.sh           # EC2 proxy (Elastic IP) provisioning
 └── tests/
     ├── __init__.py
     ├── conftest.py
@@ -797,11 +793,15 @@ Each local `RelayPollingSource` still filters by its `agent_id` in `_dispatch_me
 Re-run `scripts/setup-self-relay.sh` (rsyncs `remote_control/` to the host and
 restarts the systemd unit), or on the host: `sudo systemctl restart lobster-relay`.
 
-### Legacy AWS relay teardown
+### Legacy AWS relay (removed)
 
-The old stack remains tearable via `scripts/setup-relay.sh --teardown` (deletes
-API Gateway + Lambda + IAM role + DynamoDB) during cutover. `relay/lambda_function.py`
-is retained only for that teardown path.
+The former AWS relay (API Gateway + Lambda + IAM role + DynamoDB) was torn down
+on 2026-06-15 after the self-hosted relay was verified end-to-end. The `relay/`
+directory and `setup-relay.sh` were removed with it. If a fresh environment still
+has the old stack, delete it with the AWS CLI: `aws apigatewayv2 delete-api`,
+`aws lambda delete-function --function-name wecom-relay`, `aws dynamodb
+delete-table --table-name wecom_relay_messages`, and remove the
+`wecom-relay-lambda-role` IAM role.
 
 ---
 

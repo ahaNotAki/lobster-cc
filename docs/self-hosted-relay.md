@@ -144,13 +144,19 @@ admin-console registration (step 4) and the config edit are inherently manual.
    registered, then restarts `lobster-cc`), or restart manually:
    `ssh <host> 'sudo systemctl restart lobster-cc'`.
 6. Send a WeCom message end-to-end; confirm a reply.
-7. **Wait out the old DynamoDB 7-day TTL** so any in-flight messages drain. Keep
-   the old AWS relay ~1 week as rollback.
-8. Tear down the legacy AWS stack: `./scripts/setup-relay.sh --teardown`
-   (deletes API Gateway + Lambda + IAM role + DynamoDB).
+7. **Reset the local relay cursor** if migrating from a different relay: the
+   poller's stored cursor (`relay_cursor_<agent_id>` in the local SQLite `kv`
+   table) is in the old relay's seq-space and won't match the new relay's
+   `seq` (which starts at 1). Stop `lobster-cc`, run
+   `sqlite3 remote_control.db "UPDATE kv SET value='0' WHERE key LIKE 'relay_cursor%';"`,
+   then start it — otherwise the poller asks for `seq > <large old cursor>` and
+   silently fetches nothing.
+8. If you had a legacy AWS relay (API Gateway + Lambda + DynamoDB + IAM role),
+   delete it with the AWS CLI once the new path is confirmed (see DESIGN.md
+   "Legacy AWS relay (removed)").
 
-Rollback: revert the WeCom callback URL + remote `config.yaml` to the old relay;
-the old DynamoDB buffer (7-day TTL) still holds messages.
+Rollback: re-point the WeCom callback URL + remote `config.yaml` `relay_url` at
+the previous relay and restart `lobster-cc`.
 
 ## Operations
 

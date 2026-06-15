@@ -207,7 +207,7 @@ creates the instance, an Elastic IP, an SSH key, and a security group — note t
 security group id (`sg-…`) it prints; you need it in 2b:
 
 ```bash
-./scripts/setup.sh --proxy   # provisions EC2 + Elastic IP + SOCKS tunnel box
+./scripts/setup-proxy.sh   # provisions EC2 + Elastic IP; start the SOCKS tunnel via deploy.sh --proxy-ip
 ```
 
 **2b. Deploy the relay onto that box.** Once you've configured the server (step 3,
@@ -276,11 +276,11 @@ Syncs code, installs deps, starts the server. Your `config.yaml` and database st
 
 ### With fixed outbound IP
 
-WeCom may require IP whitelisting. The `--proxy` flag in setup.sh creates the EC2 proxy:
+WeCom may require IP whitelisting. `setup-proxy.sh` provisions the EC2 proxy box:
 
 ```bash
-# If you didn't use --proxy during setup:
-./scripts/setup.sh --proxy
+# Provision the EC2 proxy (Elastic IP) if you don't have one yet:
+./scripts/setup-proxy.sh
 
 # Deploy with proxy tunnel:
 ./deploy.sh user@host /path \
