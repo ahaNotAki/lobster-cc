@@ -115,7 +115,18 @@ fi
 # ────────────────────────────────────────────────
 # DEPLOY
 # ────────────────────────────────────────────────
-echo "=== lobster-cc — Relay Setup ==="
+echo "WARNING: setup-relay.sh (AWS API Gateway + Lambda + DynamoDB) is DEPRECATED."
+echo "         It was flagged by AppSec (APIGAuthenticationCheck) for unauthenticated"
+echo "         public endpoints. Use scripts/setup-self-relay.sh (self-hosted relay)."
+echo "         This script remains only for '--teardown' of legacy resources."
+echo ""
+read -r -p "  Continue deploying the deprecated AWS relay anyway? [y/N] " _confirm
+case "$_confirm" in
+    y|Y|yes|YES) ;;
+    *) echo "  Aborted. See docs/self-hosted-relay.md."; exit 1 ;;
+esac
+echo ""
+echo "=== lobster-cc — Relay Setup (DEPRECATED) ==="
 echo "  Region: $REGION"
 echo ""
 

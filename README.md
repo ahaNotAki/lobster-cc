@@ -121,12 +121,12 @@ Send backend tasks to one bot, frontend tasks to another. They work independentl
 
 ### No public URL needed
 
-Most chat-to-CLI tools need ngrok or a public endpoint. lobster-cc uses an **AWS Lambda relay** — WeCom pushes messages to Lambda, your local server polls for them. Your machine stays behind the firewall.
+Most chat-to-CLI tools need ngrok or a public endpoint. lobster-cc uses a **self-hosted relay** on a small always-on box — WeCom pushes messages to the relay, your local server polls for them. Your machine stays behind the firewall.
 
 ```
-Phone → WeCom → Lambda (relay) ← Your server (polls) → Claude Code
-                                      ↓
-                              Results back to your phone
+Phone → WeCom → self-hosted relay ← Your server (polls) → Claude Code
+                                          ↓
+                                  Results back to your phone
 ```
 
 ### Self-configuration via MCP tools
@@ -165,22 +165,23 @@ Bot:  I see the issue — the modal is overflowing on mobile. Let me fix the CSS
 ## How It Works
 
 ```
-┌──────────┐  callback  ┌────────────────┐  poll   ┌─────────────────┐
-│  You on  │───────────►│  AWS Lambda    │◄────────│  lobster-cc     │
-│  WeCom   │            │  (relay)       │────────►│  server         │
-│  📱      │◄───────────│  + DynamoDB    │         │                 │
-└──────────┘  reply     └────────────────┘         │  Claude Code ←──┤
-                                                   │  Dashboard   ←──┤
-                                                   └─────────────────┘
+┌──────────┐  callback  ┌────────────────────┐  poll   ┌─────────────────┐
+│  You on  │───────────►│  self-hosted relay │◄────────│  lobster-cc     │
+│  WeCom   │            │  aiohttp + SQLite  │────────►│  server         │
+│  📱      │◄───────────│  (on your EC2 box) │         │                 │
+└──────────┘  reply     └────────────────────┘         │  Claude Code ←──┤
+                                                       │  Dashboard   ←──┤
+                                                       └─────────────────┘
 ```
 
 1. You send a message in WeCom
-2. WeCom pushes the encrypted callback to an AWS Lambda relay
-3. Lambda stores it in DynamoDB (raw, encrypted)
-4. Your local server polls the relay, decrypts locally, and runs it through Claude Code CLI
+2. WeCom pushes the encrypted callback to your self-hosted relay (signature + freshness verified)
+3. The relay buffers it in SQLite (raw, encrypted; short TTL)
+4. Your local server polls the relay with a Bearer token, decrypts locally, and runs it through Claude Code CLI
 5. Results stream back to you via WeCom API — short replies inline, long ones as files
 
-All crypto happens on your machine. The relay is a dumb pipe.
+All crypto happens on your machine. The relay only buffers encrypted blobs. See
+[docs/self-hosted-relay.md](docs/self-hosted-relay.md) and [ADR 0001](docs/architecture-decisions/0001-self-hosted-relay.md).
 
 ## Quick Start
 
@@ -189,7 +190,7 @@ All crypto happens on your machine. The relay is a dumb pipe.
 - Python 3.11+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 - [WeCom](https://work.weixin.qq.com/) enterprise account with a custom app (自建应用)
-- AWS account (for the relay)
+- An always-on host with a public IP for the self-hosted relay (e.g. a small EC2 box)
 
 ### 1. Install
 
@@ -199,26 +200,25 @@ cd lobster-cc
 pip install -e .
 ```
 
-### 2. Deploy AWS infrastructure
+### 2. Deploy the self-hosted relay
 
-One command sets up everything — relay (Lambda + API Gateway + DynamoDB) and optionally an EC2 proxy with Elastic IP:
+Provision the relay onto your always-on EC2 box. It opens the relay port to WeCom
+IP ranges only (never `0.0.0.0/0`) and installs a `Restart=always` systemd unit:
 
 ```bash
-# Relay only
-./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
+FETCH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
-# Relay + EC2 proxy (for WeCom IP whitelist)
-./scripts/setup.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY --proxy
+./scripts/setup-self-relay.sh \
+    --host ec2-user@<elastic-ip> --sg-id sg-xxxx \
+    --relay-port 8443 --fetch-token "$FETCH_TOKEN" \
+    --wecom-ips "<cidr1>,<cidr2>" \
+    --ssh-key ~/.ssh/rc-proxy-key.pem
 ```
 
-Fully idempotent — re-running skips existing resources. Only requires AWS CLI.
-
-You can also run the relay setup separately if needed:
-```bash
-./scripts/setup-relay.sh --token YOUR_WECOM_TOKEN --aes-key YOUR_WECOM_AES_KEY
-```
-
-See [relay/README.md](relay/README.md) for SAM alternative or resource details.
+Get the WeCom callback IP ranges from the `getcallbackip` API. See
+[docs/self-hosted-relay.md](docs/self-hosted-relay.md) for the full guide,
+[docs/security.md](docs/security.md) for the auth model, and
+[docs/aws-proxy.md](docs/aws-proxy.md) for provisioning the EC2 box itself.
 
 ### 3. Configure
 
@@ -231,8 +231,8 @@ Interactive wizard — prompts for WeCom credentials, validates them, writes `co
 ### 4. Set up WeCom callback
 
 In WeCom admin → Your App → 接收消息 → 设置API接收:
-- **URL**: The API Gateway endpoint from step 2
-- **Token** / **EncodingAESKey**: Must match your config.yaml and Lambda env vars
+- **URL**: `http://<elastic-ip>:8443/callback/<agent_id>` (your relay from step 2)
+- **Token** / **EncodingAESKey**: Must match your config.yaml and the relay's env vars
 
 ### 5. Run
 
@@ -300,7 +300,8 @@ docker-compose up
 | | |
 |---|---|
 | [DESIGN.md](DESIGN.md) | Technical architecture and design decisions |
-| [relay/README.md](relay/README.md) | AWS relay deployment (SAM + manual) |
+| [docs/self-hosted-relay.md](docs/self-hosted-relay.md) | Self-hosted relay deployment & operations |
+| [docs/security.md](docs/security.md) | Relay auth model, TLS decision, token rotation |
 | [docs/aws-proxy.md](docs/aws-proxy.md) | Fixed outbound IP proxy guide |
 | [docs/wecom-mcp.md](docs/wecom-mcp.md) | WeCom MCP tools for Claude |
 | [REQUIREMENTS.md](REQUIREMENTS.md) | Requirements and milestones |

@@ -6,16 +6,19 @@ WeCom does **not** provide a polling/pull API for 应用消息. We support two p
 
 ### Mode 1: Relay (recommended)
 
-WeCom pushes callbacks to an AWS Lambda relay. The relay stores raw encrypted messages in DynamoDB. The local server polls the relay and decrypts locally. No public URL needed on the local machine.
+WeCom pushes callbacks to a **self-hosted relay** (`src/remote_control/relay/`, a small aiohttp + SQLite process on an always-on EC2 box). The relay verifies the WeCom signature + 5-min timestamp freshness on `/callback`, buffers raw encrypted messages in SQLite (short TTL), and serves them on an authenticated `/messages/fetch` (Bearer token). The local server polls the relay and decrypts locally. No public URL needed on the local machine.
 
 ```
-┌──────────┐  callback  ┌──────────────────────┐  poll  ┌──────────────────┐
-│  WeCom   │───────────►│  AWS Lambda + APIGW  │◄──────│  Remote Control  │
-│  Server  │            │  + DynamoDB          │──────►│  Server (local)  │
-└──────────┘            └──────────────────────┘       └──────────────────┘
+┌──────────┐  callback  ┌──────────────────────┐  poll(Bearer) ┌──────────────────┐
+│  WeCom   │───────────►│  self-hosted relay   │◄──────────────│  Remote Control  │
+│  Server  │            │  aiohttp + SQLite    │──────────────►│  Server (local)  │
+└──────────┘            │  (SG → WeCom IPs)    │               └──────────────────┘
+                        └──────────────────────┘
 ```
 
-Configure via `config.yaml`: `wecom.mode: "relay"`, `wecom.relay_url`, and `wecom.relay_poll_interval_seconds`.
+This replaced the former AWS API Gateway + Lambda + DynamoDB relay, which was flagged by AppSec finding `APIGAuthenticationCheck` (unauthenticated public endpoints). See `docs/architecture-decisions/0001-self-hosted-relay.md` for the decision record and `docs/self-hosted-relay.md` for deployment.
+
+Configure via `config.yaml`: `wecom.mode: "relay"`, `wecom.relay_url`, `wecom.relay_token`, and `wecom.relay_poll_interval_seconds`.
 
 Replies are sent **directly** from the local server to WeCom API (`qyapi.weixin.qq.com`) — no relay needed for outbound messages. Optionally routed through a SOCKS5 proxy for fixed outbound IP (see below).
 
@@ -594,14 +597,20 @@ remote_control/
 │       │   ├── store.py         # SQLite store (Store + ScopedStore per-agent wrapper)
 │       │   ├── models.py        # Task, Session, CronJob data models
 │       │   └── profile.py       # Agent profile system (ProfileManager, hot-reload, audit trail)
+│       ├── relay/               # Self-hosted relay (aiohttp + SQLite)
+│       │   ├── app.py           # RelayStore, RelayConfig, create_relay_app (handlers)
+│       │   └── __main__.py      # python -m remote_control.relay entry point
 │       └── utils/
 │           └── __init__.py
-├── relay/
-│   ├── lambda_function.py       # AWS Lambda handler (callback + fetch)
-│   └── README.md                # Deployed AWS resource inventory
+├── relay/                       # Legacy AWS relay (retained for teardown only)
+│   ├── lambda_function.py       # Old AWS Lambda handler — superseded by src/.../relay/
+│   └── README.md                # Legacy AWS resource inventory + teardown
 ├── scripts/
-│   ├── setup.sh                 # Unified setup (relay + optional proxy)
-│   ├── setup-relay.sh           # Relay-only setup (Lambda + API Gateway + DynamoDB)
+│   ├── setup.sh                 # Unified setup (legacy AWS relay + optional proxy)
+│   ├── setup-relay.sh           # Legacy AWS relay (DEPRECATED; --teardown still used)
+│   ├── setup-self-relay.sh      # Self-hosted relay deploy (SG → WeCom IPs, systemd)
+│   ├── audit-sg.sh              # Pre-deploy gate: fail if relay/SOCKS port open to 0.0.0.0/0
+│   ├── relay-monitor.sh         # Relay health-check for cron alerting
 │   └── setup-proxy.sh           # EC2 proxy setup (separate, older script)
 └── tests/
     ├── __init__.py
@@ -716,8 +725,8 @@ Signal received
 | Session ID mismatch | Auto-retry with opposite `--session-id`/`--resume` flag. |
 | Invalid config | Fail fast on startup with clear error message. |
 | SQLite write failure | Log error, attempt retry. Critical path — surface to user if persistent. |
-| Relay Lambda error | WeCom retries callback delivery up to 3 times. Lambda errors logged to CloudWatch. Local poll retries on next interval. |
-| Relay unreachable | Local `_poll_loop` catches `httpx.ConnectError`, `httpx.TimeoutException`, and `OSError` silently, retries on next poll interval. No message loss — DynamoDB retains messages for 7 days. |
+| Relay error | WeCom retries callback delivery up to 3 times (5s deadline each, short window). The relay verifies + buffers within that window; `Restart=always` recovers a crashed relay in ~10s. Local poll retries on next interval. |
+| Relay unreachable | Local `_poll_loop` catches `httpx.ConnectError`, `httpx.TimeoutException`, and `OSError` silently, retries on next poll interval. No message loss — the relay's SQLite buffer retains messages for `TTL_DAYS` (default 2). |
 | File upload failure | Falls back to truncated inline text message with char count indicator. |
 
 ---
@@ -731,16 +740,22 @@ Signal received
 
 ---
 
-## 13. AWS Relay Setup
+## 13. Self-Hosted Relay Setup
 
-The relay is deployed on AWS (Lambda + API Gateway + DynamoDB) in `ap-southeast-1` (Singapore) for low latency from China mainland. See `relay/README.md` for the full resource inventory.
+The relay is a small aiohttp + SQLite process (`src/remote_control/relay/`) running
+on the always-on EC2 box in `ap-southeast-1` (Singapore) under a `Restart=always`
+systemd unit. It replaced the former AWS API Gateway + Lambda + DynamoDB relay,
+which AppSec flagged (`APIGAuthenticationCheck`) for unauthenticated public POST
+endpoints. See `docs/self-hosted-relay.md` for deployment/ops, `docs/security.md`
+for the auth model, and `docs/architecture-decisions/0001-self-hosted-relay.md`
+for the decision record. Deploy with `scripts/setup-self-relay.sh`.
 
 ### Architecture
 
 ```
-WeCom  ──POST──►  API Gateway  ──►  Lambda (store raw XML)  ──►  DynamoDB
-                                                                      │
-Local server  ──POST /messages/fetch──►  API Gateway  ──►  Lambda  ──┘
+WeCom  ──POST /callback──►  relay (verify sig + freshness, store)  ──►  SQLite (WAL, short TTL)
+                                                                              │
+Local server  ──POST /messages/fetch (Bearer)──►  relay  ─────────────────────┘
      │
      ▼
   Decrypt locally (crypto.py) → Command Router → Claude Code CLI
@@ -749,35 +764,44 @@ Local server  ──POST /messages/fetch──►  API Gateway  ──►  Lambd
   WeCom API (qyapi.weixin.qq.com) ← replies sent directly (no relay)
 ```
 
-### Lambda Function (`relay/lambda_function.py`)
+### Relay app (`src/remote_control/relay/app.py`)
 
-Single function, 3 routes:
+`create_relay_app(config, now_fn, store, run_purge)` builds an aiohttp app with:
 
 | Route | Action |
 |-------|--------|
-| `GET /callback` | WeCom URL verification — decrypts echostr, returns plaintext |
-| `POST /callback` | Stores raw encrypted XML + query params in DynamoDB (pass-through, no decryption) |
-| `POST /messages/fetch` | Returns messages with `seq > cursor`, cursor-based pagination |
+| `GET /callback[/{agent_id}]` | WeCom URL verification — verifies signature, decrypts echostr, returns plaintext |
+| `POST /callback[/{agent_id}]` | Verifies WeCom signature **and** 5-min timestamp freshness, then stores raw encrypted XML + query params. Invalid/stale/empty/unknown-agent → `403` |
+| `POST /messages/fetch` | Requires `Authorization: Bearer <fetch_token>` (→ `401` otherwise). Returns messages with `seq > cursor`, cursor-based pagination |
+| `GET /health` | `{status, queue_depth, last_callback_ts, rejected_count}` for monitoring |
 
-The Lambda only does crypto for the one-time GET verification. All message decryption happens locally.
+Unlike the old Lambda, the relay verifies the WeCom signature on `POST /callback`
+before storing (closing the old "stores any body" gap). Timestamp freshness is
+enforced here at the trust boundary **only**, never on the local dispatch path —
+see `docs/security.md` for why. All message decryption still happens locally.
 
-**Multi-agent relay sharing**: A single relay endpoint (`POST /callback`) can receive callbacks from multiple WeCom agents (since WeCom sends all agent callbacks to the same URL). The outer XML includes an `AgentID` field. Each local `RelayPollingSource` filters messages by its configured `agent_id` during `_dispatch_message()`, silently skipping messages for other agents. This means all agents can share one relay + DynamoDB table without interference.
+**Multi-agent relay sharing**: One relay endpoint serves multiple WeCom agents.
+`RelayConfig.agent_creds(agent_id)` resolves per-agent `(token, aes_key)` from the
+`AGENT_CONFIGS` env (falling back to legacy single-agent `WECOM_TOKEN`/`WECOM_AES_KEY`).
+Each local `RelayPollingSource` still filters by its `agent_id` in `_dispatch_message()`.
 
-### DynamoDB Table (`wecom_relay_messages`)
+### SQLite buffer (`RelayStore`)
 
-- **PK**: `msg_id` (UUID)
-- **GSI** `seq-index`: `gsi_pk` (always `"msg"`) + `seq` (number) — enables efficient cursor-based range queries
-- **TTL**: Auto-expire items after 7 days
-- **Counter**: Special item `msg_id = "__counter__"` with atomic `seq` increment
+- **Table** `messages`: `seq` (AUTOINCREMENT PK), `agent_id`, `body`, `query_params` (JSON), `created_at`
+- **Cursor**: monotonic `seq`; `fetch(cursor, limit)` returns `seq > cursor` ascending
+- **TTL**: `purge_expired()` deletes rows older than `TTL_DAYS` (default 2), run hourly by a background task
+- **Mode**: WAL, owned by a non-root `lobster-relay` user, `0600`
 
-### Updating Lambda Code
+### Updating the relay
 
-```bash
-cp relay/lambda_function.py /tmp/lambda_package/
-cd /tmp/lambda_package && zip -r /tmp/wecom_relay.zip .
-aws lambda update-function-code --region ap-southeast-1 \
-  --function-name wecom-relay --zip-file fileb:///tmp/wecom_relay.zip
-```
+Re-run `scripts/setup-self-relay.sh` (rsyncs `remote_control/` to the host and
+restarts the systemd unit), or on the host: `sudo systemctl restart lobster-relay`.
+
+### Legacy AWS relay teardown
+
+The old stack remains tearable via `scripts/setup-relay.sh --teardown` (deletes
+API Gateway + Lambda + IAM role + DynamoDB) during cutover. `relay/lambda_function.py`
+is retained only for that teardown path.
 
 ---
 
@@ -803,7 +827,7 @@ class MessageSource(abc.ABC):
 
 ### RelayPollingSource Details
 
-The relay (AWS Lambda) is a **pass-through** — it stores raw encrypted WeCom callback data in DynamoDB. The local `RelayPollingSource` polls the relay, then **decrypts and parses locally** using the same `crypto.py` functions as `CallbackSource`.
+The self-hosted relay verifies the WeCom signature + freshness, then **buffers** raw encrypted WeCom callback data in SQLite. The local `RelayPollingSource` polls the relay (sending its Bearer `relay_token`), then **decrypts and parses locally** using the same `crypto.py` functions as `CallbackSource`.
 
 ```
 _poll_loop()  ──►  _poll_once()  ──►  _fetch_messages(url, payload)

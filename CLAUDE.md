@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 # Generate config interactively (validates WeCom credentials)
 lobster init
 
-# Run the server (relay mode — polls AWS Lambda relay, no tunnel needed)
+# Run the server (relay mode — polls the self-hosted relay, no tunnel needed)
 lobster -c config.yaml
 # Or: python -m remote_control.main -c config.yaml
 
@@ -53,7 +53,7 @@ ssh user@host 'journalctl -u lobster-cc -f'           # live logs
 ## Architecture
 
 ```
-WeCom → [AWS relay] → aiohttp server → Command Router → Executor → Claude Code CLI
+WeCom → [self-hosted relay] → aiohttp server → Command Router → Executor → Claude Code CLI
                                            ↕                          ↕
                                        Notifier ←──── text output ────┘
                                            ↕
@@ -90,7 +90,7 @@ WeCom → [AWS relay] → aiohttp server → Command Router → Executor → Cla
 **Multi-agent support**: Config `wecom` can be a single dict or a list. Each agent gets its own `WeComAPI`, `MessageSource`, `Executor`, `CommandRouter`, and `ScopedStore`. They share a single `Store` (SQLite DB) with `agent_id` isolation. Per-agent `working_dir` override supported. Routes are namespaced by agent_id (e.g., `/wecom/callback/{agent_id}`, `/relay/status/{agent_id}`). Dashboard shows all agents with separate lobsters and status panels.
 
 **Message source modes** (`wecom.mode` in config):
-- `relay` (recommended) — WeCom pushes raw callbacks to an AWS Lambda relay (API Gateway + DynamoDB). Local server polls the relay and decrypts messages using `crypto.py`. No public URL needed locally. See `relay/README.md` for infrastructure details.
+- `relay` (recommended) — WeCom pushes raw callbacks to a **self-hosted relay** (`src/remote_control/relay/`, a small aiohttp + SQLite process on an always-on EC2 box). The relay verifies the WeCom signature + 5-min timestamp freshness on `/callback` and requires a Bearer token on `/messages/fetch`; its SG opens the port to WeCom IP ranges only. The local server polls the relay and decrypts messages using `crypto.py`. No public URL needed locally. Replaced the former AWS API Gateway + Lambda + DynamoDB relay (AppSec finding `APIGAuthenticationCheck`). See `docs/self-hosted-relay.md`, `docs/security.md`, and `docs/architecture-decisions/0001-self-hosted-relay.md`.
 - `callback` — WeCom pushes messages directly to `/wecom/callback/{agent_id}` endpoint. Requires public URL (e.g., ngrok).
 
 **Outbound proxy**: Optional SOCKS5 proxy for fixed outbound IP (WeCom IP whitelist). Configure `wecom.proxy: "socks5://127.0.0.1:1080"` and use `deploy.sh --proxy-ip` to auto-manage the tunnel. See `docs/aws-proxy.md`.
