@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 # Generate config interactively (validates WeCom credentials)
 lobster init
 
-# Run the server (relay mode — polls the self-hosted relay, no tunnel needed)
+# Run the server (callback mode — WeCom POSTs to /wecom/callback/{agent_id} via the EC2:80 reverse tunnel)
 lobster -c config.yaml
 # Or: python -m remote_control.main -c config.yaml
 
@@ -44,10 +44,6 @@ ruff check src/ tests/
 ./scripts/setup-proxy.sh                    # one-time EC2 + Elastic IP setup
 ./deploy.sh user@host /path --proxy-ip <elastic-ip> --proxy-key ~/.ssh/rc-proxy-key.pem
 
-# Deploy / update the self-hosted WeCom relay (replaces the removed AWS relay)
-./scripts/deploy-self-relay.sh --host user@host --remote-dir /path \
-  --relay-host ec2-user@<elastic-ip> --sg-id <sg> --ssh-key ~/.ssh/rc-proxy-key.pem
-
 # Manage services on remote host
 ssh user@host 'systemctl status lobster-cc'           # check status
 ssh user@host 'sudo systemctl restart lobster-cc'     # restart
@@ -57,7 +53,7 @@ ssh user@host 'journalctl -u lobster-cc -f'           # live logs
 ## Architecture
 
 ```
-WeCom → [self-hosted relay] → aiohttp server → Command Router → Executor → Claude Code CLI
+WeCom → EC2:80 (reverse SSH tunnel) → aiohttp server → Command Router → Executor → Claude Code CLI
                                            ↕                          ↕
                                        Notifier ←──── text output ────┘
                                            ↕
@@ -66,7 +62,7 @@ WeCom → [self-hosted relay] → aiohttp server → Command Router → Executor
 
 **Key modules** (`src/remote_control/`):
 
-- `wecom/message_source.py` — `MessageSource` abstraction with `CallbackSource` (webhook) and `RelayPollingSource` (poll relay service) implementations
+- `wecom/message_source.py` — `MessageSource` abstraction; only `CallbackSource` (registers `/wecom/callback/{agent_id}` via `WeComGateway`) is implemented today
 - `wecom/gateway.py` — HTTP callback handler: signature verification, message decryption, dispatch. Supports text, image, voice, video, and file message types.
 - `wecom/crypto.py` — WeCom AES-CBC encryption/decryption protocol
 - `wecom/api.py` — WeCom API client: access token management, message/file/image sending, media upload/download. Auto-splits long messages via `_send_chunks()` with byte-level splitting, 0.5s inter-chunk delay, and retry-on-error. Supports optional SOCKS5 proxy (`wecom.proxy`).
@@ -94,7 +90,7 @@ WeCom → [self-hosted relay] → aiohttp server → Command Router → Executor
 **Multi-agent support**: Config `wecom` can be a single dict or a list. Each agent gets its own `WeComAPI`, `MessageSource`, `Executor`, `CommandRouter`, and `ScopedStore`. They share a single `Store` (SQLite DB) with `agent_id` isolation. Per-agent `working_dir` override supported. Routes are namespaced by agent_id (e.g., `/wecom/callback/{agent_id}`, `/relay/status/{agent_id}`). Dashboard shows all agents with separate lobsters and status panels.
 
 **Message source modes** (`wecom.mode` in config):
-- `relay` (recommended) — WeCom pushes raw callbacks to a **self-hosted relay** (`src/remote_control/relay/`, a small aiohttp + SQLite process on an always-on EC2 box). The relay verifies the WeCom signature + 5-min timestamp freshness on `/callback` and requires a Bearer token on `/messages/fetch`; its SG opens the port to WeCom IP ranges only. The local server polls the relay and decrypts messages using `crypto.py`. No public URL needed locally. Replaced the former AWS API Gateway + Lambda + DynamoDB relay (AppSec finding `APIGAuthenticationCheck`). See `docs/self-hosted-relay.md`, `docs/security.md`, and `docs/architecture-decisions/0001-self-hosted-relay.md`.
+**Inline callback processing** — WeCom POSTs callbacks to `http://<elastic-ip>/wecom/callback/{agent_id}`. The `rc-dashboard-tunnel.service` (autossh reverse SSH) forwards EC2:80 → desktop:8080, where `WeComGateway` verifies the signature + 5-min timestamp freshness, decrypts via `crypto.py`, and dispatches into the executor pipeline. No public URL on the local box. No separate relay service. The earlier AWS-Lambda relay and the self-hosted-relay-on-EC2 design are both retired — see `docs/architecture-decisions/0001-self-hosted-relay.md` and `docs/architecture-decisions/0002-inline-callback-processing.md`.
 - `callback` — WeCom pushes messages directly to `/wecom/callback/{agent_id}` endpoint. Requires public URL (e.g., ngrok).
 
 **Outbound proxy**: Optional SOCKS5 proxy for fixed outbound IP (WeCom IP whitelist). Configure `wecom.proxy: "socks5://127.0.0.1:1080"` and use `deploy.sh --proxy-ip` to auto-manage the tunnel. See `docs/aws-proxy.md`.

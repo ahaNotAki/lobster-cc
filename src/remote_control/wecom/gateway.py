@@ -1,6 +1,7 @@
 """WeCom callback HTTP handler — receives and dispatches messages."""
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Callable, Awaitable
 
@@ -12,6 +13,11 @@ from remote_control.wecom.crypto import (
     parse_message_xml,
     verify_signature,
 )
+
+# Reject callbacks whose query-string timestamp is older than this many seconds.
+# Replay protection at the trust boundary: WeCom delivers within seconds, so a
+# 5-min window is generous; older deliveries indicate replay.
+_FRESHNESS_SECONDS = 300
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +41,11 @@ MessageHandler = Callable[[IncomingMessage], Awaitable[None]]
 
 
 class WeComGateway:
-    def __init__(self, config: WeComConfig, on_message: MessageHandler):
+    def __init__(self, config: WeComConfig, on_message: MessageHandler, now_fn=None):
         self._config = config
         self._on_message = on_message
+        # now_fn is injectable so tests can pin "current time" without sleeping.
+        self._now_fn = now_fn or time.time
 
     async def handle_verify(self, request: web.Request) -> web.Response:
         """Handle WeCom callback URL verification (GET)."""
@@ -67,6 +75,17 @@ class WeComGateway:
         if not verify_signature(self._config.token, timestamp, nonce, encrypt, msg_signature):
             logger.warning("Message signature verification failed")
             return web.Response(status=403, text="invalid signature")
+
+        # Freshness — replay protection at the trust boundary.
+        try:
+            ts_int = int(timestamp)
+        except (TypeError, ValueError):
+            logger.warning("Message has invalid timestamp: %r", timestamp)
+            return web.Response(status=403, text="invalid timestamp")
+        age = abs(self._now_fn() - ts_int)
+        if age > _FRESHNESS_SECONDS:
+            logger.warning("Rejected stale callback (age=%ds)", age)
+            return web.Response(status=403, text="stale")
 
         decrypted = decrypt_message(self._config.encoding_aes_key, encrypt)
         inner_xml = parse_message_xml(decrypted.content)

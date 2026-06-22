@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from aiohttp.test_utils import TestClient, TestServer
 
 from remote_control.server import create_app, _create_message_source, _write_mcp_json
-from remote_control.wecom.message_source import CallbackSource, RelayPollingSource
+from remote_control.wecom.message_source import CallbackSource
 
 
 def _mock_store():
@@ -40,46 +40,10 @@ async def test_callback_routes_registered(app_config):
     assert "/health" in route_paths
 
 
-@pytest.mark.asyncio
-async def test_relay_routes_registered(relay_config):
-    app = create_app(relay_config)
-    route_paths = [r.resource.canonical for r in app.router.routes()]
-    assert "/relay/status/1000002" in route_paths
-    assert "/health" in route_paths
-    # Callback routes should NOT be registered in relay mode
-    assert "/wecom/callback/1000002" not in route_paths
-
-
 def test_create_message_source_callback(app_config):
+    """Only one message source exists now — CallbackSource."""
     source = _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
     assert isinstance(source, CallbackSource)
-
-
-def test_create_message_source_relay(relay_config):
-    source = _create_message_source(relay_config.wecom[0], lambda msg: None, _mock_store())
-    assert isinstance(source, RelayPollingSource)
-
-
-def test_create_message_source_invalid(app_config):
-    app_config.wecom[0].mode = "invalid"
-    with pytest.raises(ValueError, match="Unknown wecom.mode"):
-        _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
-
-
-def test_create_message_source_relay_missing_url(app_config):
-    app_config.wecom[0].mode = "relay"
-    app_config.wecom[0].relay_url = ""
-    with pytest.raises(ValueError, match="relay_url is required"):
-        _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
-
-
-def test_create_message_source_relay_missing_token(app_config):
-    """relay mode now requires relay_token (self-hosted relay authenticates fetch)."""
-    app_config.wecom[0].mode = "relay"
-    app_config.wecom[0].relay_url = "http://relay.example.com"
-    app_config.wecom[0].relay_token = ""
-    with pytest.raises(ValueError, match="relay_token is required"):
-        _create_message_source(app_config.wecom[0], lambda msg: None, _mock_store())
 
 
 @pytest.mark.asyncio
@@ -103,11 +67,11 @@ async def test_multi_agent_app(tmp_path):
         wecom=[
             WeComConfig(
                 name="agent-a", corp_id="c", agent_id=1000002,
-                secret="s1", token="t1", encoding_aes_key="k1", mode="callback",
+                secret="s1", token="t1", encoding_aes_key="k1",
             ),
             WeComConfig(
                 name="agent-b", corp_id="c", agent_id=1000003,
-                secret="s2", token="t2", encoding_aes_key="k2", mode="callback",
+                secret="s2", token="t2", encoding_aes_key="k2",
             ),
         ],
         agent=AgentConfig(default_working_dir=str(tmp_path)),

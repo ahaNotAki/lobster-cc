@@ -31,9 +31,15 @@ def on_message():
     return AsyncMock()
 
 
+# Existing tests use timestamp 1409659813 (Sept 2014). Pin now_fn to that
+# instant so freshness checks treat the canned timestamps as "fresh"; new
+# freshness-rejection tests build their own gateway with a different now_fn.
+_FROZEN_NOW = 1409659813
+
+
 @pytest.fixture
 def gateway(wecom_config, on_message):
-    return WeComGateway(wecom_config, on_message)
+    return WeComGateway(wecom_config, on_message, now_fn=lambda: _FROZEN_NOW)
 
 
 def _make_encrypted_callback_body(content_xml: str) -> tuple[str, str]:
@@ -137,7 +143,7 @@ async def test_handle_image_message(client, on_message):
         <MsgId>img456</MsgId>
     </xml>"""
     encrypted, body = _make_encrypted_callback_body(content_xml)
-    timestamp = "123"
+    timestamp = str(_FROZEN_NOW)
     nonce = "abc"
     sig = make_signature(TEST_TOKEN, timestamp, nonce, encrypted)
 
@@ -165,7 +171,7 @@ async def test_handle_unsupported_message_type(client, on_message):
         <FromUserName><![CDATA[user1]]></FromUserName>
     </xml>"""
     encrypted, body = _make_encrypted_callback_body(content_xml)
-    timestamp = "123"
+    timestamp = str(_FROZEN_NOW)
     nonce = "abc"
     sig = make_signature(TEST_TOKEN, timestamp, nonce, encrypted)
 
@@ -202,3 +208,63 @@ async def test_safe_handle_exception(gateway, on_message):
     msg = IncomingMessage(user_id="u", content="c", msg_id="m", agent_id="a")
     # Should not raise
     await gateway._safe_handle(msg)
+
+
+# --- Timestamp freshness (replay protection) ---
+
+
+async def _stale_client(wecom_config, on_message):
+    """Build a gateway whose 'now' is far in the future so canned 2014
+    timestamps look stale (age > 300s)."""
+    far_future_now = _FROZEN_NOW + 10_000  # 10000s after the canned timestamp
+    gw = WeComGateway(wecom_config, on_message, now_fn=lambda: far_future_now)
+    app = web.Application()
+    app.router.add_post("/wecom/callback", gw.handle_message)
+    server = TestServer(app)
+    cli = TestClient(server)
+    await cli.start_server()
+    return cli
+
+
+@pytest.mark.asyncio
+async def test_handle_message_rejects_stale_timestamp(wecom_config, on_message):
+    """Callback timestamp older than 300s must return 403, not enqueue."""
+    cli = await _stale_client(wecom_config, on_message)
+    try:
+        content_xml = "<xml><MsgType><![CDATA[text]]></MsgType><Content>hi</Content>" \
+                      "<FromUserName>u</FromUserName><MsgId>1</MsgId></xml>"
+        encrypted, body = _make_encrypted_callback_body(content_xml)
+        ts = str(_FROZEN_NOW)  # canned 2014 timestamp; gateway thinks "now" is +10000s
+        sig = make_signature(TEST_TOKEN, ts, "n", encrypted)
+
+        resp = await cli.post("/wecom/callback",
+                              params={"msg_signature": sig, "timestamp": ts, "nonce": "n"},
+                              data=body)
+        assert resp.status == 403
+        assert "stale" in (await resp.text()).lower()
+        on_message.assert_not_called()
+    finally:
+        await cli.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_message_rejects_non_numeric_timestamp(wecom_config, on_message):
+    """Non-numeric timestamp must return 403 (can't be a real WeCom delivery)."""
+    gw = WeComGateway(wecom_config, on_message, now_fn=lambda: _FROZEN_NOW)
+    app = web.Application()
+    app.router.add_post("/wecom/callback", gw.handle_message)
+    server = TestServer(app)
+    cli = TestClient(server)
+    await cli.start_server()
+    try:
+        content_xml = "<xml><MsgType><![CDATA[text]]></MsgType><Content>hi</Content></xml>"
+        encrypted, body = _make_encrypted_callback_body(content_xml)
+        # Sign with the bad timestamp so we get past sig check and reach freshness check
+        sig = make_signature(TEST_TOKEN, "not-a-number", "n", encrypted)
+        resp = await cli.post("/wecom/callback",
+                              params={"msg_signature": sig, "timestamp": "not-a-number", "nonce": "n"},
+                              data=body)
+        assert resp.status == 403
+        on_message.assert_not_called()
+    finally:
+        await cli.close()
