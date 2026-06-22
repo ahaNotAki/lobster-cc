@@ -27,7 +27,6 @@ def test_load_config_single_agent(tmp_path):
     assert config.wecom[0].agent_id == 1000002
     assert config.agent.claude_command == "/bin/echo"
     assert config.server.port == 8080  # default
-    assert config.wecom[0].mode == "relay"  # default
 
 
 def test_load_config_multi_agent(tmp_path):
@@ -86,9 +85,7 @@ def test_load_config_with_all_fields(tmp_path):
             "secret": "s",
             "token": "t",
             "encoding_aes_key": "k",
-            "mode": "relay",
-            "relay_url": "http://relay.example.com",
-            "relay_poll_interval_seconds": 10.0,
+            "proxy": "socks5://127.0.0.1:1080",
         },
         "agent": {
             "claude_command": "/usr/local/bin/claude",
@@ -104,13 +101,35 @@ def test_load_config_with_all_fields(tmp_path):
     path.write_text(yaml.dump(config_data))
 
     config = load_config(path)
-    assert config.wecom[0].mode == "relay"
-    assert config.wecom[0].relay_url == "http://relay.example.com"
-    assert config.wecom[0].relay_poll_interval_seconds == 10.0
+    assert config.wecom[0].proxy == "socks5://127.0.0.1:1080"
     assert config.agent.claude_command == "/usr/local/bin/claude"
     assert config.agent.model == "opus"
     assert config.server.host == "127.0.0.1"
     assert config.server.port == 9090
+
+
+def test_load_config_ignores_legacy_relay_fields(tmp_path):
+    """A leftover config.yaml from the relay era must not crash the new code."""
+    config_data = {
+        "wecom": {
+            "corp_id": "c", "agent_id": 1, "secret": "s", "token": "t",
+            "encoding_aes_key": "k",
+            # Removed fields — should be silently ignored, not raise.
+            "mode": "relay",
+            "relay_url": "http://old-relay:8443",
+            "relay_token": "abcdef",
+            "relay_poll_interval_seconds": 3.0,
+        },
+        "agent": {"claude_command": "/bin/echo"},
+    }
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.dump(config_data))
+
+    config = load_config(path)  # must not raise
+    assert config.wecom[0].agent_id == 1
+    # Removed fields are not present on the model anymore
+    assert not hasattr(config.wecom[0], "mode")
+    assert not hasattr(config.wecom[0], "relay_url")
 
 
 def test_load_config_claude_not_in_path(tmp_path):
@@ -156,22 +175,6 @@ def test_wecom_config_defaults():
     config = WeComConfig(
         corp_id="c", agent_id=1, secret="s", token="t", encoding_aes_key="k"
     )
-    assert config.mode == "relay"
-    assert config.relay_url == ""
-    assert config.relay_poll_interval_seconds == 5.0
     assert config.name == ""
-
-
-def test_wecom_config_relay_token_defaults_empty():
-    cfg = WeComConfig(
-        corp_id="c", agent_id=1, secret="s", token="t", encoding_aes_key="k",
-    )
-    assert cfg.relay_token == ""
-
-
-def test_wecom_config_relay_token_set():
-    cfg = WeComConfig(
-        corp_id="c", agent_id=1, secret="s", token="t", encoding_aes_key="k",
-        relay_token="bearer-secret-xyz",
-    )
-    assert cfg.relay_token == "bearer-secret-xyz"
+    assert config.proxy == ""
+    assert config.working_dir == ""

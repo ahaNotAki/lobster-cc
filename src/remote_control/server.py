@@ -17,7 +17,7 @@ from remote_control.core.store import ScopedStore, Store
 from remote_control.core.watchdog import ProcessWatchdog
 from remote_control.wecom.api import WeComAPI
 from remote_control.wecom.gateway import IncomingMessage
-from remote_control.wecom.message_source import CallbackSource, MessageSource, RelayPollingSource
+from remote_control.wecom.message_source import CallbackSource, MessageSource
 
 logger = logging.getLogger(__name__)
 
@@ -35,28 +35,10 @@ _MEDIA_EXTENSIONS = {
 def _create_message_source(
     wecom_config: WeComConfig, on_message, store: Store,
 ) -> MessageSource:
-    """Create the appropriate message source based on config."""
-    mode = wecom_config.mode
-    if mode == "relay":
-        if not wecom_config.relay_url:
-            raise ValueError(
-                f"wecom.relay_url is required when mode is 'relay' (agent_id={wecom_config.agent_id})."
-            )
-        if not wecom_config.relay_token:
-            raise ValueError(
-                f"wecom.relay_token is required when mode is 'relay' (agent_id={wecom_config.agent_id}). "
-                f"The self-hosted relay authenticates /messages/fetch with a Bearer token; "
-                f"set it to the relay's RELAY_FETCH_TOKEN. See docs/self-hosted-relay.md."
-            )
-        return RelayPollingSource(
-            wecom_config, wecom_config.relay_url, on_message,
-            store=store,
-            poll_interval=wecom_config.relay_poll_interval_seconds,
-        )
-    elif mode == "callback":
-        return CallbackSource(wecom_config, on_message)
-    else:
-        raise ValueError(f"Unknown wecom.mode: {mode!r}. Must be 'callback' or 'relay'.")
+    """Build the WeCom message source. `store` is currently unused but the
+    arg is retained so callers don't need to change."""
+    del store  # currently unused
+    return CallbackSource(wecom_config, on_message)
 
 
 async def _download_and_save_media(
@@ -225,8 +207,8 @@ def create_app(config: AppConfig) -> web.Application:
         # Write .mcp.json so Claude Code (including scheduled tasks) can send WeCom messages
         _write_mcp_json(agent_config, wecom_config)
 
-        logger.info("Agent '%s' (agent_id=%d) configured in %s mode (wd=%s)",
-                     agent_label, wecom_config.agent_id, wecom_config.mode, agent_working_dir)
+        logger.info("Agent '%s' (agent_id=%d) configured (wd=%s)",
+                     agent_label, wecom_config.agent_id, agent_working_dir)
 
     # Dashboard (read-only web UI)
     if config.dashboard.enabled and config.dashboard.password:

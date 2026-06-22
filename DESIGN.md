@@ -1,39 +1,47 @@
 # lobster-cc — Technical Design
 
-## 0. Message Receiving: Two Modes
+## 0. Message Receiving
 
-WeCom does **not** provide a polling/pull API for 应用消息. We support two pluggable modes via the `MessageSource` abstraction:
-
-### Mode 1: Relay (recommended)
-
-WeCom pushes callbacks to a **self-hosted relay** (`src/remote_control/relay/`, a small aiohttp + SQLite process on an always-on EC2 box). The relay verifies the WeCom signature + 5-min timestamp freshness on `/callback`, buffers raw encrypted messages in SQLite (short TTL), and serves them on an authenticated `/messages/fetch` (Bearer token). The local server polls the relay and decrypts locally. No public URL needed on the local machine.
-
-```
-┌──────────┐  callback  ┌──────────────────────┐  poll(Bearer) ┌──────────────────┐
-│  WeCom   │───────────►│  self-hosted relay   │◄──────────────│  Remote Control  │
-│  Server  │            │  aiohttp + SQLite    │──────────────►│  Server (local)  │
-└──────────┘            │  (SG → WeCom IPs)    │               └──────────────────┘
-                        └──────────────────────┘
-```
-
-This replaced the former AWS API Gateway + Lambda + DynamoDB relay, which was flagged by AppSec finding `APIGAuthenticationCheck` (unauthenticated public endpoints). See `docs/architecture-decisions/0001-self-hosted-relay.md` for the decision record and `docs/self-hosted-relay.md` for deployment.
-
-Configure via `config.yaml`: `wecom.mode: "relay"`, `wecom.relay_url`, `wecom.relay_token`, and `wecom.relay_poll_interval_seconds`.
-
-Replies are sent **directly** from the local server to WeCom API (`qyapi.weixin.qq.com`) — no relay needed for outbound messages. Optionally routed through a SOCKS5 proxy for fixed outbound IP (see below).
-
-### Mode 2: Callback (alternative)
-
-Push-based via WeCom webhook directly to local server. Requires a public URL (e.g., ngrok).
+WeCom does **not** provide a polling/pull API for 应用消息 — it pushes callbacks
+to a public URL we configure. We expose lobster-cc on the public internet via a
+**reverse SSH tunnel from the local box to an always-on EC2 box**, and process
+callbacks inline in the same aiohttp server that serves the dashboard.
 
 ```
-┌──────────┐    HTTPS     ┌─────────────────┐   localhost   ┌──────────────────┐
-│  WeCom   │─────────────►│  ngrok / tunnel │─────────────► │  Remote Control  │
-│  Server  │◄─────────────│                 │◄───────────── │  Server (local)  │
-└──────────┘              └─────────────────┘               └──────────────────┘
+┌──────────┐ HTTP POST ┌──────────────┐ reverse SSH  ┌──────────────────┐
+│  WeCom   │──────────►│ EC2:80       │──tunnel─────►│ Remote Control   │
+│  Server  │           │ (Elastic IP) │              │ Server (local)   │
+│          │◄──────────│              │              │                  │
+└──────────┘   reply   └──────────────┘              │ + Dashboard      │
+                                                     └──────────────────┘
+                              ▲                              │
+                              │                              │
+                     rc-dashboard-tunnel.service              │
+                     (autossh, EC2:80 → desktop:8080) ────────┘
 ```
 
-Configure via `config.yaml`: `wecom.mode: "callback"`. Requires `ngrok http 8080` or similar tunnel running.
+The `rc-dashboard-tunnel.service` autossh tunnel forwards `EC2:80` to the
+desktop's `localhost:8080`. WeCom POSTs to
+`http://<elastic-ip>/wecom/callback/{agent_id}`, the tunnel pipes the request
+to the local lobster-cc aiohttp app, and `WeComGateway.handle_message`:
+
+1. verifies the WeCom signature (SHA1 of sorted `token+timestamp+nonce+encrypt`),
+2. enforces a 5-minute timestamp freshness window (replay protection), and
+3. decrypts the payload and dispatches into the executor pipeline.
+
+Replies are sent **directly** from the local server to WeCom API
+(`qyapi.weixin.qq.com`), optionally through a SOCKS5 proxy for fixed outbound
+IP (see below).
+
+This design was reached after two earlier iterations were retired: the AWS
+API Gateway + Lambda + DynamoDB relay (AppSec finding `APIGAuthenticationCheck`,
+removed in 0.3.0) and a self-hosted aiohttp+SQLite relay on EC2 (also retired
+in 0.4.0 once it was clear the dashboard reverse tunnel could carry callbacks
+directly with equivalent security and far less operational surface). See
+`docs/architecture-decisions/0001-self-hosted-relay.md` and `0002-inline-callback-processing.md`.
+
+Configure via `config.yaml`: just the WeCom credentials (`corp_id`, `agent_id`,
+`secret`, `token`, `encoding_aes_key`); no mode switch is needed.
 
 ### Outbound Proxy (fixed IP for WeCom API)
 
@@ -106,7 +114,7 @@ Config can be either a single dict (backwards compatible) or a list of agents.
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Message Source** | Pluggable adapter for receiving messages. `CallbackSource` (WeCom webhook via ngrok) or `RelayPollingSource` (polls the self-hosted relay). See Section 14. |
+| **Message Source** | Adapter for receiving messages. `CallbackSource` registers `/wecom/callback/{agent_id}` and wraps `WeComGateway` (verifies signature + 300s freshness, decrypts, dispatches). See Section 14. |
 | **WeCom Gateway** | HTTP callback handler for verification, decryption, and dispatch. Used internally by `CallbackSource`. |
 | **Command Router** | Parses incoming messages: slash commands (`/status`, `/cancel`, `/clear`, etc.) are handled immediately; everything else becomes a task. Scheduling is handled by Claude Code's `scheduler` MCP plugin via natural language. |
 | **Agent Runner** | Manages Claude Code CLI subprocess. Uses `--output-format stream-json` for structured streaming. Parses `system/init`, `assistant`, and `result` events to extract thinking blocks, token usage, model info, and cost. Self-heals session mismatches by retrying with opposite `--session-id`/`--resume` flag. |
@@ -297,7 +305,7 @@ Body: <xml><Encrypt>...</Encrypt></xml>
 Flow:
 1. Verify signature.
 2. Decrypt the `<Encrypt>` field → XML with `FromUserName`, `Content`, `MsgType`, `AgentID`, etc.
-3. **AgentID filtering** (multi-agent relay): The outer XML includes an `AgentID` field. In relay mode, where a single relay receives callbacks for all agents, `RelayPollingSource._dispatch_message()` checks the `AgentID` and silently skips messages intended for other agents. This prevents duplicate processing in multi-agent setups.
+3. **AgentID routing** (multi-agent): WeCom sends each agent's callbacks to its own URL (`/wecom/callback/{agent_id}`), so the lobster-cc app routes them to the right `WeComGateway` automatically. The outer XML's `AgentID` field is a redundant safety check — verified during decryption — but no longer load-bearing for routing.
 4. Parse message type — supported types: `text`, `image`, `voice`, `video`, `file`.
 5. For media messages: download via WeCom media API, save to `_media/` dir, prepend file path to prompt.
 6. Pass to Command Router.
@@ -575,7 +583,7 @@ remote_control/
 │       │   ├── gateway.py       # Callback handler (verify, decrypt, dispatch)
 │       │   ├── crypto.py        # WeCom message encryption/decryption
 │       │   ├── api.py           # WeCom API client (text, markdown, file, image upload)
-│       │   └── message_source.py # MessageSource ABC + CallbackSource, RelayPollingSource
+│       │   └── message_source.py # MessageSource ABC + CallbackSource
 │       ├── dashboard/
 │       │   ├── __init__.py
 │       │   ├── routes.py         # Auth (cookie HMAC), login page, /api/status + task + tab endpoints
@@ -597,16 +605,9 @@ remote_control/
 │       │   ├── store.py         # SQLite store (Store + ScopedStore per-agent wrapper)
 │       │   ├── models.py        # Task, Session, CronJob data models
 │       │   └── profile.py       # Agent profile system (ProfileManager, hot-reload, audit trail)
-│       ├── relay/               # Self-hosted relay (aiohttp + SQLite)
-│       │   ├── app.py           # RelayStore, RelayConfig, create_relay_app (handlers)
-│       │   └── __main__.py      # python -m remote_control.relay entry point
 │       └── utils/
 │           └── __init__.py
 ├── scripts/
-│   ├── deploy-self-relay.sh     # Full relay cutover orchestrator (config-driven)
-│   ├── setup-self-relay.sh      # Self-hosted relay deploy (SG → WeCom IPs, venv, systemd)
-│   ├── audit-sg.sh              # Pre-deploy gate: fail if relay/SOCKS port open to 0.0.0.0/0
-│   ├── relay-monitor.sh         # Relay health-check for cron alerting
 │   └── setup-proxy.sh           # EC2 proxy (Elastic IP) provisioning
 └── tests/
     ├── __init__.py
@@ -736,72 +737,56 @@ Signal received
 
 ---
 
-## 13. Self-Hosted Relay Setup
+## 13. Inbound Path: EC2:80 Reverse Tunnel
 
-The relay is a small aiohttp + SQLite process (`src/remote_control/relay/`) running
-on the always-on EC2 box in `ap-southeast-1` (Singapore) under a `Restart=always`
-systemd unit. It replaced the former AWS API Gateway + Lambda + DynamoDB relay,
-which AppSec flagged (`APIGAuthenticationCheck`) for unauthenticated public POST
-endpoints. See `docs/self-hosted-relay.md` for deployment/ops, `docs/security.md`
-for the auth model, and `docs/architecture-decisions/0001-self-hosted-relay.md`
-for the decision record. Deploy with `scripts/setup-self-relay.sh`.
-
-### Architecture
+WeCom callbacks reach the lobster-cc server on the local box via an autossh
+reverse SSH tunnel established by `rc-dashboard-tunnel.service`.
 
 ```
-WeCom  ──POST /callback──►  relay (verify sig + freshness, store)  ──►  SQLite (WAL, short TTL)
+WeCom  ──HTTP POST──►  EC2:80  ──reverse SSH tunnel──►  desktop:8080  ──►  WeComGateway
                                                                               │
-Local server  ──POST /messages/fetch (Bearer)──►  relay  ─────────────────────┘
-     │
-     ▼
-  Decrypt locally (crypto.py) → Command Router → Claude Code CLI
-     │
-     ▼
-  WeCom API (qyapi.weixin.qq.com) ← replies sent directly (no relay)
+                                                                              ▼
+                                                              Decrypt → Router → Claude Code CLI
+                                                                              │
+                                                                              ▼
+                                                       WeCom API ← replies sent directly
 ```
 
-### Relay app (`src/remote_control/relay/app.py`)
+The tunnel is generated by `deploy.sh` when `--proxy-ip` is set (see line ~270
+of that script — it writes the systemd unit on the deploy host). EC2:80 is
+held by an `sshd` listening on port 80 (an alternate sshd configuration); the
+`sshd` accepts the tunnel forward and serves the forwarded port to incoming
+HTTP traffic.
 
-`create_relay_app(config, now_fn, store, run_purge)` builds an aiohttp app with:
+`WeComGateway.handle_message` (`src/remote_control/wecom/gateway.py`) is the
+trust boundary:
+1. **WeCom signature** — SHA1 of sorted `token,timestamp,nonce,encrypt`. Forgery
+   blocked at this step (the `token` is a shared secret). 403 on mismatch.
+2. **Timestamp freshness** — reject if `|now - timestamp| > 300s`. Replay
+   protection. 403 on stale.
+3. **Decrypt** — AES-CBC with the agent's `EncodingAESKey`. Then parse inner
+   XML and dispatch via `_safe_handle` → executor.
 
-| Route | Action |
-|-------|--------|
-| `GET /callback[/{agent_id}]` | WeCom URL verification — verifies signature, decrypts echostr, returns plaintext |
-| `POST /callback[/{agent_id}]` | Verifies WeCom signature **and** 5-min timestamp freshness, then stores raw encrypted XML + query params. Invalid/stale/empty/unknown-agent → `403` |
-| `POST /messages/fetch` | Requires `Authorization: Bearer <fetch_token>` (→ `401` otherwise). Returns messages with `seq > cursor`, cursor-based pagination |
-| `GET /health` | `{status, queue_depth, last_callback_ts, rejected_count}` for monitoring |
+Raw XML is parsed with `defusedxml` (entity-expansion / XXE hardening) because
+parsing has to precede signature verification (the `<Encrypt>` field must be
+extracted before it can be verified).
 
-Unlike the old Lambda, the relay verifies the WeCom signature on `POST /callback`
-before storing (closing the old "stores any body" gap). Timestamp freshness is
-enforced here at the trust boundary **only**, never on the local dispatch path —
-see `docs/security.md` for why. All message decryption still happens locally.
+### Legacy: AWS relay and self-hosted relay (both removed)
 
-**Multi-agent relay sharing**: One relay endpoint serves multiple WeCom agents.
-`RelayConfig.agent_creds(agent_id)` resolves per-agent `(token, aes_key)` from the
-`AGENT_CONFIGS` env (falling back to legacy single-agent `WECOM_TOKEN`/`WECOM_AES_KEY`).
-Each local `RelayPollingSource` still filters by its `agent_id` in `_dispatch_message()`.
+This project went through two earlier inbound architectures, both retired:
 
-### SQLite buffer (`RelayStore`)
+- **0.2.x and earlier** — AWS API Gateway + Lambda + DynamoDB. AppSec finding
+  `APIGAuthenticationCheck`: `/callback` stored bodies without signature
+  checks, `/messages/fetch` had no auth. Removed in 0.3.0.
+- **0.3.x** — Self-hosted aiohttp + SQLite relay on EC2, polled with a Bearer
+  token. Closed the AppSec finding. Retired in 0.4.0 once it was clear the
+  dashboard reverse tunnel could carry callbacks directly with equivalent
+  security and one fewer distributed service. See ADR 0001 and 0002.
 
-- **Table** `messages`: `seq` (AUTOINCREMENT PK), `agent_id`, `body`, `query_params` (JSON), `created_at`
-- **Cursor**: monotonic `seq`; `fetch(cursor, limit)` returns `seq > cursor` ascending
-- **TTL**: `purge_expired()` deletes rows older than `TTL_DAYS` (default 2), run hourly by a background task
-- **Mode**: WAL, owned by a non-root `lobster-relay` user, `0600`
-
-### Updating the relay
-
-Re-run `scripts/setup-self-relay.sh` (rsyncs `remote_control/` to the host and
-restarts the systemd unit), or on the host: `sudo systemctl restart lobster-relay`.
-
-### Legacy AWS relay (removed)
-
-The former AWS relay (API Gateway + Lambda + IAM role + DynamoDB) was torn down
-on 2026-06-15 after the self-hosted relay was verified end-to-end. The `relay/`
-directory and `setup-relay.sh` were removed with it. If a fresh environment still
-has the old stack, delete it with the AWS CLI: `aws apigatewayv2 delete-api`,
-`aws lambda delete-function --function-name wecom-relay`, `aws dynamodb
-delete-table --table-name wecom_relay_messages`, and remove the
-`wecom-relay-lambda-role` IAM role.
+If a fresh environment still has the old AWS stack, delete it with the AWS
+CLI: `aws apigatewayv2 delete-api`, `aws lambda delete-function --function-name
+wecom-relay`, `aws dynamodb delete-table --table-name wecom_relay_messages`,
+and remove the `wecom-relay-lambda-role` IAM role.
 
 ---
 
@@ -820,79 +805,42 @@ class MessageSource(abc.ABC):
 
 ### Implementations
 
-| Source | Config | Routes | How it works |
-|--------|--------|--------|--------------|
-| `CallbackSource` | `mode: "callback"` | `GET/POST /wecom/callback/{agent_id}` | Wraps `WeComGateway`. WeCom pushes messages via webhook. |
-| `RelayPollingSource` | `mode: "relay"` | `GET /relay/status/{agent_id}` | Background `asyncio.Task` polls a relay service on interval. Cursor persisted in `kv` table. |
+| Source | Routes | How it works |
+|--------|--------|--------------|
+| `CallbackSource` | `GET/POST /wecom/callback/{agent_id}` | Wraps `WeComGateway`. WeCom POSTs callbacks; the gateway verifies signature + 300s freshness, decrypts, dispatches. |
 
-### RelayPollingSource Details
+`MessageSource` is left abstract for future variants (e.g. a Slack or Telegram
+source), but only one implementation exists today.
 
-The self-hosted relay verifies the WeCom signature + freshness, then **buffers** raw encrypted WeCom callback data in SQLite. The local `RelayPollingSource` polls the relay (sending its Bearer `relay_token`), then **decrypts and parses locally** using the same `crypto.py` functions as `CallbackSource`.
-
-```
-_poll_loop()  ──►  _poll_once()  ──►  _fetch_messages(url, payload)
-                       │                        │
-                       │                        ▼
-                       │               HTTP POST <relay_url>/messages/fetch
-                       │                        │
-                       ▼                        ▼
-                 for msg in messages:     returns {messages (raw encrypted), next_cursor}
-                   _dispatch_message(msg)
-                       │
-                       ▼
-                 verify_signature() → decrypt_message() → parse_message_xml()
-                       │
-                       ▼
-                 IncomingMessage → on_message callback
-```
-
-**Cursor persistence**: The relay cursor is stored in the SQLite `kv` table (`relay_cursor_{agent_id}`), so messages are not replayed after server restart.
-
-**Network resilience**: The poll loop catches `httpx.ConnectError`, `httpx.TimeoutException`, and `OSError` silently (common during VPN disconnects or laptop sleep) and retries on the next interval. No messages are lost.
-
-**Message flow (inbound):**
-```
-WeCom → relay /callback (verify sig + freshness, store) → SQLite buffer
-Local server → poll relay /messages/fetch (Bearer) → decrypt locally → dispatch
-```
-
-**Message flow (outbound — replies):**
-```
-Local server → WeCom API (qyapi.weixin.qq.com) directly (no relay needed)
-```
-
-**Relay API contract:**
+### CallbackSource details
 
 ```
-POST <relay_url>/messages/fetch
-Headers:  Authorization: Bearer <relay_token>      # 401 if missing/wrong
-Request:  {"cursor": "<last_cursor>", "limit": 100}
-Response: {
-    "messages": [
-        {
-            "msg_id": "<seq>",
-            "seq": 42,
-            "query_params": {"msg_signature": "...", "timestamp": "...", "nonce": "..."},
-            "body": "<xml><Encrypt>...</Encrypt></xml>"
-        },
-        ...
-    ],
-    "next_cursor": "<seq_of_last_message>"
-}
+WeCom POST  ──►  EC2:80  ──tunnel──►  /wecom/callback/{agent_id}
+                                            │
+                                            ▼
+                                  WeComGateway.handle_message
+                                            │
+                          verify_signature → freshness check → decrypt
+                                            │
+                                            ▼
+                                  asyncio.create_task(_safe_handle(msg))
+                                            │
+                                            ▼
+                                  on_message → executor → Claude Code
 ```
 
-- **Buffer, not pass-through**: the relay verifies the WeCom signature + 5-min freshness on `/callback` before storing encrypted XML; all message decryption still happens locally in `_dispatch_message()` via `crypto.py`.
-- **Cursor management**: Cursor is the `seq` number of the last fetched message. The relay's SQLite `messages` table (`seq` AUTOINCREMENT) enables efficient `seq > cursor` range queries. The local cursor is persisted in the local SQLite `kv` table across restarts.
-- **Error isolation**: `_fetch_messages()` is extracted as a separate method for testability. Decryption or handler errors in `_dispatch_message()` are caught per-message to prevent crashing the poll loop.
-- **Observability**: local `GET /relay/status/{agent_id}` returns current cursor, relay URL, poll interval, and source type; the relay's own `GET /health` returns queue depth + rejected count.
-- **TTL**: the relay purges buffered messages older than `TTL_DAYS` (default 2) hourly.
+The gateway returns `200 success` to WeCom *before* awaiting `on_message`
+(`_safe_handle` is fire-and-forget via `asyncio.create_task`), keeping the
+response well within WeCom's 5-second deadline regardless of how long Claude
+takes to actually run the task.
+
+**Reply flow (outbound):** `Local server → WeCom API (qyapi.weixin.qq.com)`,
+optionally through the SOCKS5 proxy for fixed outbound IP.
 
 ### Source Selection (server.py)
 
 ```python
 def _create_message_source(wecom_config, on_message, store) -> MessageSource:
-    if wecom_config.mode == "relay":
-        return RelayPollingSource(wecom_config, wecom_config.relay_url, on_message, store=store, ...)
     return CallbackSource(wecom_config, on_message)
 ```
 

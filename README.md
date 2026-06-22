@@ -121,12 +121,12 @@ Send backend tasks to one bot, frontend tasks to another. They work independentl
 
 ### No public URL needed
 
-Most chat-to-CLI tools need ngrok or a public endpoint. lobster-cc uses a **self-hosted relay** on a small always-on box — WeCom pushes messages to the relay, your local server polls for them. Your machine stays behind the firewall.
+Most chat-to-CLI tools need ngrok or a public endpoint. lobster-cc uses an **autossh reverse tunnel** from your local box to a small always-on EC2 box — WeCom pushes messages to EC2:80, the tunnel forwards them to the lobster-cc server on your local box, no inbound port on your machine needed.
 
 ```
-Phone → WeCom → self-hosted relay ← Your server (polls) → Claude Code
-                                          ↓
-                                  Results back to your phone
+Phone → WeCom → EC2:80 → reverse SSH tunnel → lobster-cc on your box → Claude Code
+                                                                          ↓
+                                                                  Results back to your phone
 ```
 
 ### Self-configuration via MCP tools
@@ -165,23 +165,23 @@ Bot:  I see the issue — the modal is overflowing on mobile. Let me fix the CSS
 ## How It Works
 
 ```
-┌──────────┐  callback  ┌────────────────────┐  poll   ┌─────────────────┐
-│  You on  │───────────►│  self-hosted relay │◄────────│  lobster-cc     │
-│  WeCom   │            │  aiohttp + SQLite  │────────►│  server         │
-│  📱      │◄───────────│  (on your EC2 box) │         │                 │
-└──────────┘  reply     └────────────────────┘         │  Claude Code ←──┤
-                                                       │  Dashboard   ←──┤
-                                                       └─────────────────┘
+┌──────────┐  HTTP POST  ┌──────────────┐  reverse SSH   ┌─────────────────┐
+│  You on  │────────────►│  EC2:80      │───tunnel─────► │  lobster-cc     │
+│  WeCom   │             │  (always on) │                │  server (yours) │
+│  📱      │◄────────────│              │                │                 │
+└──────────┘   reply     └──────────────┘                │  Claude Code ←──┤
+                                                         │  Dashboard   ←──┤
+                                                         └─────────────────┘
 ```
 
 1. You send a message in WeCom
-2. WeCom pushes the encrypted callback to your self-hosted relay (signature + freshness verified)
-3. The relay buffers it in SQLite (raw, encrypted; short TTL)
-4. Your local server polls the relay with a Bearer token, decrypts locally, and runs it through Claude Code CLI
+2. WeCom POSTs the encrypted callback to your EC2 box on port 80
+3. An autossh reverse SSH tunnel forwards EC2:80 → your local lobster-cc server
+4. The server verifies the WeCom signature + 5-min timestamp freshness, decrypts, and dispatches to Claude Code
 5. Results stream back to you via WeCom API — short replies inline, long ones as files
 
-All crypto happens on your machine. The relay only buffers encrypted blobs. See
-[docs/self-hosted-relay.md](docs/self-hosted-relay.md) and [ADR 0001](docs/architecture-decisions/0001-self-hosted-relay.md).
+All crypto happens on your machine. EC2 is just an inbound port + tunnel forwarder. See
+[ADR 0002](docs/architecture-decisions/0002-inline-callback-processing.md) and [docs/security.md](docs/security.md).
 
 ## Quick Start
 
@@ -190,7 +190,7 @@ All crypto happens on your machine. The relay only buffers encrypted blobs. See
 - Python 3.11+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 - [WeCom](https://work.weixin.qq.com/) enterprise account with a custom app (自建应用)
-- An always-on host with a public IP for the self-hosted relay (e.g. a small EC2 box)
+- An always-on host with a public IP (e.g. a small EC2 box) — used as the inbound endpoint for WeCom callbacks via a reverse SSH tunnel
 
 ### 1. Install
 
@@ -200,33 +200,22 @@ cd lobster-cc
 pip install -e .
 ```
 
-### 2. Deploy the self-hosted relay
+### 2. Provision the always-on EC2 box (skip if you already have one)
 
-**2a. Provision the always-on EC2 box** (skip if you already have one). This
-creates the instance, an Elastic IP, an SSH key, and a security group — note the
-security group id (`sg-…`) it prints; you need it in 2b:
+Creates the instance, an Elastic IP, an SSH key, and a security group:
 
 ```bash
-./scripts/setup-proxy.sh   # provisions EC2 + Elastic IP; start the SOCKS tunnel via deploy.sh --proxy-ip
+./scripts/setup-proxy.sh
 ```
 
-**2b. Deploy the relay onto that box.** Once you've configured the server (step 3,
-including a `relay_token` per agent), one command orchestrates the whole cutover —
-it reads all WeCom credentials from the remote `config.yaml` (nothing secret on the
-command line), derives the WeCom callback IP ranges, provisions the relay (SG
-restricted to WeCom IPs, `Restart=always` systemd unit), health-checks it, and
-prints the exact admin-console URL(s) to register:
+`deploy.sh --proxy-ip <elastic-ip>` (later) sets up the autossh tunnels — both
+the outbound SOCKS tunnel (for WeCom API calls) and the reverse `EC2:80 →
+desktop:8080` tunnel that lets WeCom reach your lobster-cc server.
 
-```bash
-./scripts/deploy-self-relay.sh \
-    --host ec2-user@<deploy-host> --remote-dir /path/to/lobster-cc \
-    --relay-host ec2-user@<elastic-ip> --sg-id sg-xxxx \
-    --ssh-key ~/.ssh/rc-proxy-key.pem
-```
-
-See [docs/self-hosted-relay.md](docs/self-hosted-relay.md) for the full cutover
-runbook (and a manual single-step path), [docs/security.md](docs/security.md) for
-the auth model, and [docs/aws-proxy.md](docs/aws-proxy.md) for the EC2 box.
+See [docs/aws-proxy.md](docs/aws-proxy.md) for the EC2 box,
+[docs/security.md](docs/security.md) for the auth model, and
+[ADR 0002](docs/architecture-decisions/0002-inline-callback-processing.md) for
+why callbacks are processed inline (no separate relay).
 
 ### 3. Configure
 
@@ -239,8 +228,8 @@ Interactive wizard — prompts for WeCom credentials, validates them, writes `co
 ### 4. Set up WeCom callback
 
 In WeCom admin → Your App → 接收消息 → 设置API接收:
-- **URL**: `http://<elastic-ip>:8443/callback/<agent_id>` (your relay from step 2)
-- **Token** / **EncodingAESKey**: Must match your config.yaml and the relay's env vars
+- **URL**: `http://<elastic-ip>/wecom/callback/<agent_id>` (port 80, served by the reverse tunnel)
+- **Token** / **EncodingAESKey**: Must match `wecom.token` / `wecom.encoding_aes_key` in your `config.yaml`
 
 ### 5. Run
 
@@ -308,7 +297,7 @@ docker-compose up
 | | |
 |---|---|
 | [DESIGN.md](DESIGN.md) | Technical architecture and design decisions |
-| [docs/self-hosted-relay.md](docs/self-hosted-relay.md) | Self-hosted relay deployment & operations |
+| [docs/architecture-decisions/](docs/architecture-decisions/) | ADRs (decision records) |
 | [docs/security.md](docs/security.md) | Relay auth model, TLS decision, token rotation |
 | [docs/aws-proxy.md](docs/aws-proxy.md) | Fixed outbound IP proxy guide |
 | [docs/wecom-mcp.md](docs/wecom-mcp.md) | WeCom MCP tools for Claude |

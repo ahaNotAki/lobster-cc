@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0] — 2026-06-22
+
+### Architecture
+- **Collapsed the self-hosted relay into the lobster-cc server itself.** WeCom callbacks now POST to `http://<elastic-ip>/wecom/callback/{agent_id}` directly, served by the existing `rc-dashboard-tunnel.service` (autossh reverse SSH from the local box to EC2:80). `WeComGateway` verifies the signature + 5-min timestamp freshness inline before dispatching to the executor.
+- See [ADR 0002](docs/architecture-decisions/0002-inline-callback-processing.md) for the rationale (supersedes ADR 0001).
+
+### Security
+- Added a 300s timestamp-freshness check to `WeComGateway.handle_message` (replay protection at the new trust boundary). Previously enforced by the relay; now enforced by the gateway.
+
+### Removed
+- `src/remote_control/relay/` (the self-hosted aiohttp+SQLite relay package) and its `RelayPollingSource` poller.
+- `wecom.mode`, `wecom.relay_url`, `wecom.relay_token`, `wecom.relay_poll_interval_seconds` config fields. `WeComConfig` uses `extra="ignore"` so leftover legacy fields in an in-the-wild `config.yaml` don't crash the upgraded server.
+- Scripts: `setup-self-relay.sh`, `deploy-self-relay.sh`, `audit-sg.sh`, `relay-monitor.sh`, `templates/lobster-relay.service`.
+- Tests: `test_relay_app.py`, `test_audit_sg.py`, `test_message_source.py` (the relay-polling tests; the gateway tests gained two new freshness-rejection cases).
+- Docs: `docs/self-hosted-relay.md` (folded into ADR 0002 + simplified `docs/security.md`).
+
+### Migration
+- WeCom admin console URL: change from `http://<elastic-ip>:8443/callback/<agent_id>` to `http://<elastic-ip>/wecom/callback/<agent_id>` (port 80, `/wecom/callback/` path).
+- Tear down the EC2 self-hosted relay: stop+disable `lobster-relay` systemd unit, remove `/opt/lobster-relay`, `/etc/lobster-relay/`, the systemd unit file, the `/etc/logrotate.d/lobster-cc` entry, and revoke the 11 SG `:8443` rules.
+- Remove `mode`, `relay_url`, `relay_token`, `relay_poll_interval_seconds` from your `config.yaml` (or leave them — they're silently ignored).
+
 ## [0.3.0] — 2026-06-15
 
 ### Security
