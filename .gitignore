@@ -1,11 +1,19 @@
 # Runtime config (generated per-deployment, never committed)
 config.yaml
+config.yaml.bak*
 *.db
 *.log
 *.pid
 *.service
 .mcp.json
 _media/
+
+# Secrets / keys — must never be committed
+*.pem
+*.key
+.env
+.env.*
+!.env.example
 
 # Per-agent runtime configs (seeded by deploy.sh, managed by agents)
 .system-prompt.md
