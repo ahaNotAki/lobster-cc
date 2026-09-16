@@ -132,8 +132,10 @@ MAX_ATTEMPTS=2
 RETRY_DELAY=30
 
 for attempt in $(seq 1 $MAX_ATTEMPTS); do
-    "${CMD[@]}" >> "$LOG_FILE" 2>&1
-    EXIT_CODE=$?
+    # `|| EXIT_CODE=$?` keeps set -e from killing the script on claude failure —
+    # without it the retry loop below is unreachable dead code
+    EXIT_CODE=0
+    "${CMD[@]}" >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
 
     if [[ $EXIT_CODE -eq 0 ]]; then
         break
