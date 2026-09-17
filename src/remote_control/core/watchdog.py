@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 class TrackedProcess:
     pid: int
     task_id: str
+    timeout: float  # per-process kill limit in seconds
     start_time: float = field(default_factory=time.monotonic)
 
 
@@ -36,10 +37,14 @@ class ProcessWatchdog:
         self._tracked: dict[int, TrackedProcess] = {}
         self._task: asyncio.Task | None = None
 
-    def register(self, pid: int, task_id: str) -> None:
-        """Register a process for watchdog tracking."""
-        self._tracked[pid] = TrackedProcess(pid=pid, task_id=task_id)
-        logger.info("Watchdog tracking pid=%d task=%s", pid, task_id)
+    def register(self, pid: int, task_id: str, timeout: float | None = None) -> None:
+        """Register a process for watchdog tracking.
+
+        timeout: per-process kill limit; None uses the global default.
+        """
+        effective = timeout if timeout is not None else self._timeout
+        self._tracked[pid] = TrackedProcess(pid=pid, task_id=task_id, timeout=effective)
+        logger.info("Watchdog tracking pid=%d task=%s (timeout=%ds)", pid, task_id, effective)
 
     def unregister(self, pid: int) -> None:
         """Remove a process from watchdog tracking (normal completion)."""
@@ -79,7 +84,7 @@ class ProcessWatchdog:
 
         for proc in list(self._tracked.values()):
             elapsed = now - proc.start_time
-            if elapsed > self._timeout:
+            if elapsed > proc.timeout:
                 to_kill.append(proc)
             elif not self._is_alive(proc.pid):
                 # Process already dead, clean up tracking
@@ -93,7 +98,7 @@ class ProcessWatchdog:
         elapsed_min = (time.monotonic() - proc.start_time) / 60
         logger.warning(
             "Watchdog killing pid=%d task=%s (running %.1f min, limit %d s)",
-            proc.pid, proc.task_id, elapsed_min, self._timeout,
+            proc.pid, proc.task_id, elapsed_min, proc.timeout,
         )
 
         # SIGTERM first, then SIGKILL
@@ -110,7 +115,7 @@ class ProcessWatchdog:
         self._tracked.pop(proc.pid, None)
 
         # Update task status and notify
-        error_msg = f"Process watchdog: killed after running {elapsed_min:.0f} min (limit: {self._timeout}s)"
+        error_msg = f"Process watchdog: killed after running {elapsed_min:.0f} min (limit: {proc.timeout:.0f}s)"
         try:
             task = self._store.get_task(proc.task_id)
             if task and task.status == TaskStatus.RUNNING:

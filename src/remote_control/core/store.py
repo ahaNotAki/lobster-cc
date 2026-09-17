@@ -78,6 +78,12 @@ class Store:
         self._conn.execute("DROP TABLE IF EXISTS memories")
         self._conn.commit()
 
+        # Add timeout_seconds column for per-task timeout override (/long)
+        task_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "timeout_seconds" not in task_cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 0")
+            self._conn.commit()
+
         # Create index after adding agent_id
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id, status, created_at)"
@@ -187,12 +193,14 @@ class Store:
 
     @staticmethod
     def _row_to_task(row: sqlite3.Row) -> Task:
+        keys = row.keys()
         return Task(
             id=row["id"], user_id=row["user_id"], session_id=row["session_id"],
             message=row["message"], status=TaskStatus(row["status"]),
             output=row["output"] or "", summary=row["summary"] or "",
             error=row["error"] or "", created_at=row["created_at"],
             started_at=row["started_at"] or "", finished_at=row["finished_at"] or "",
+            timeout_seconds=row["timeout_seconds"] if "timeout_seconds" in keys else 0,
         )
 
 
@@ -238,13 +246,15 @@ class ScopedStore:
 
     # --- Scoped task operations ---
 
-    def create_task(self, user_id: str, session_id: str, message: str) -> Task:
-        task = Task(user_id=user_id, session_id=session_id, message=message)
+    def create_task(self, user_id: str, session_id: str, message: str,
+                    timeout_seconds: int = 0) -> Task:
+        task = Task(user_id=user_id, session_id=session_id, message=message,
+                    timeout_seconds=timeout_seconds)
         self.conn.execute(
-            "INSERT INTO tasks (id, user_id, agent_id, session_id, message, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, user_id, agent_id, session_id, message, status, created_at, timeout_seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (task.id, task.user_id, self._agent_id, task.session_id,
-             task.message, task.status.value, task.created_at),
+             task.message, task.status.value, task.created_at, task.timeout_seconds),
         )
         self.conn.commit()
         return task

@@ -247,6 +247,7 @@ Send a message to your bot. It should respond.
 | `/status` | Latest task status |
 | `/cancel` | Cancel running task |
 | `/list` | Recent tasks |
+| `/long <task>` | Run a long task (up to 6 hours) |
 | `/new` | Fresh session (reset context) |
 | `/cd <path>` | Switch working directory |
 | `/output <id>` | Full output of a completed task |

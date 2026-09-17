@@ -312,3 +312,22 @@ async def test_cron_message_routed_as_task(router, mock_executor):
     )
 
 
+
+
+# --- /long ---
+
+
+@pytest.mark.asyncio
+async def test_long_command_enqueues_with_6h_timeout(router, mock_executor):
+    await router.route("user1", "/long run the full backtest")
+    mock_executor.enqueue_task.assert_called_once_with(
+        "user1", "run the full backtest", timeout_seconds=21600
+    )
+
+
+@pytest.mark.asyncio
+async def test_long_command_no_arg_shows_usage(router, mock_executor):
+    await router.route("user1", "/long")
+    mock_executor.enqueue_task.assert_not_called()
+    msg = mock_executor.notifier.send_reply.call_args[0][1]
+    assert "/long" in msg

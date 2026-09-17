@@ -82,6 +82,7 @@ class AgentRunner:
         on_thinking: OutputCallback | None = None,
         task_id: str = "",
         model_override: str | None = None,
+        watchdog_timeout: float | None = None,
     ) -> RunResult:
         """Run Claude Code CLI and return the result.
 
@@ -94,8 +95,10 @@ class AgentRunner:
             on_output: Optional callback invoked with each text output chunk.
             on_thinking: Optional callback invoked with each thinking chunk.
             model_override: Optional model to use instead of config default.
+            watchdog_timeout: Per-process watchdog limit; None uses the global default.
         """
         self._current_task_id = task_id
+        self._watchdog_timeout = watchdog_timeout
         result = await self._run_once(message, session_id, is_resume, working_dir, on_output, on_thinking, model_override=model_override)
 
         # Check if we hit a session mismatch error and should retry with the opposite mode
@@ -150,7 +153,10 @@ class AgentRunner:
         logger.info("Claude CLI spawned (pid=%d, wd=%s)", self._process.pid, working_dir)
 
         if self._watchdog and self._process.pid and self._current_task_id:
-            self._watchdog.register(self._process.pid, self._current_task_id)
+            self._watchdog.register(
+                self._process.pid, self._current_task_id,
+                timeout=getattr(self, "_watchdog_timeout", None),
+            )
 
         try:
             raw_lines: list[str] = []  # fallback for non-JSON output

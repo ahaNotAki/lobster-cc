@@ -151,3 +151,47 @@ def test_is_alive():
     """Test _is_alive with current process (always alive) and bogus PID."""
     assert ProcessWatchdog._is_alive(os.getpid()) is True
     assert ProcessWatchdog._is_alive(99999999) is False
+
+
+# --- per-process timeout ---
+
+
+@pytest.mark.asyncio
+async def test_per_process_timeout_override(store, scoped, mock_notifier):
+    """A process registered with a custom timeout uses it instead of the global default."""
+    short_proc = subprocess.Popen(["sleep", "60"])
+    long_proc = subprocess.Popen(["sleep", "60"])
+
+    try:
+        watchdog = ProcessWatchdog(
+            store=store, notifier=mock_notifier,
+            timeout_seconds=0,  # global default: immediate timeout
+            interval_seconds=60,
+        )
+
+        short_task = scoped.create_task("user1", "s1", "short task")
+        long_task = scoped.create_task("user1", "s1", "long task")
+        store.update_task_status(short_task.id, TaskStatus.RUNNING)
+        store.update_task_status(long_task.id, TaskStatus.RUNNING)
+
+        # short uses global default (0 → expired), long gets a 1-hour override
+        watchdog.register(short_proc.pid, short_task.id)
+        watchdog.register(long_proc.pid, long_task.id, timeout=3600)
+
+        await watchdog._check()
+
+        # short killed, long survives
+        short_proc.wait(timeout=5)
+        assert short_proc.pid not in watchdog._tracked
+        assert long_proc.pid in watchdog._tracked
+        assert ProcessWatchdog._is_alive(long_proc.pid)
+
+        assert store.get_task(short_task.id).status == TaskStatus.FAILED
+        assert store.get_task(long_task.id).status == TaskStatus.RUNNING
+    finally:
+        for p in (short_proc, long_proc):
+            try:
+                p.kill()
+                p.wait(timeout=2)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass

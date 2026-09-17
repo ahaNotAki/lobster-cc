@@ -153,7 +153,7 @@ async def test_execute_task_timeout(executor, store, mock_runner, mock_notifier,
     app_config.agent.task_timeout_seconds = 0.1  # very short timeout
     session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
 
-    async def slow_run(message, session_id, is_resume, working_dir, on_output=None, on_thinking=None, task_id="", model_override=None):
+    async def slow_run(*args, **kwargs):
         await asyncio.sleep(10)  # will be cancelled by timeout
         return RunResult(exit_code=0, output="never reached")
 
@@ -225,6 +225,9 @@ def test_inject_wecom_hint(executor):
     assert "user1" in result
     assert "send_wecom_message" in result
     assert "fix the bug" in result
+    # Recall tools must be advertised so Claude actually uses them.
+    assert "recall_tasks" in result
+    assert "get_task_detail" in result
 
 
 @pytest.mark.asyncio
@@ -268,3 +271,38 @@ def test_extract_summary_strips_whitespace():
     from remote_control.core.executor import _extract_summary
     output = "output\n📋   spaced summary   \n"
     assert _extract_summary(output) == "spaced summary"
+
+
+# --- per-task timeout ---
+
+
+@pytest.mark.asyncio
+async def test_execute_task_uses_task_timeout(executor, store, mock_runner, mock_notifier, app_config):
+    """A task with timeout_seconds set should override the config default."""
+    app_config.agent.task_timeout_seconds = 1  # very short default
+    session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
+
+    async def slow_run(*args, **kwargs):
+        await asyncio.sleep(2)  # exceeds config default (1s) but not task override (30s)
+        return RunResult(exit_code=0, output="done after 2s")
+
+    mock_runner.run = slow_run
+
+    task = store.create_task("user1", session.session_id, "long job", timeout_seconds=30)
+    await executor._execute_task(task)
+
+    updated = store.get_task(task.id)
+    assert updated.status == TaskStatus.COMPLETED  # would be FAILED without override
+
+
+@pytest.mark.asyncio
+async def test_execute_task_passes_watchdog_headroom(executor, store, mock_runner, mock_notifier, app_config):
+    """Long tasks should pass watchdog_timeout = task timeout + 600s to the runner."""
+    session = store.get_or_create_session("user1", str(app_config.agent.default_working_dir))
+    mock_runner.run = AsyncMock(return_value=RunResult(exit_code=0, output="ok"))
+
+    task = store.create_task("user1", session.session_id, "long job", timeout_seconds=21600)
+    await executor._execute_task(task)
+
+    kwargs = mock_runner.run.call_args
+    assert kwargs.kwargs["watchdog_timeout"] == 21600 + 600

@@ -27,6 +27,7 @@ class Task:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     started_at: str = ""
     finished_at: str = ""
+    timeout_seconds: int = 0  # 0 = use config default; >0 = per-task override (/long)
 
 
 @dataclass

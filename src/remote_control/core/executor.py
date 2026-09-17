@@ -54,13 +54,19 @@ class Executor:
                 pass
         await self.cancel_running_task()
 
-    async def enqueue_task(self, user_id: str, message: str) -> None:
-        """Create a task and wake the processing loop."""
+    async def enqueue_task(self, user_id: str, message: str, timeout_seconds: int = 0) -> None:
+        """Create a task and wake the processing loop.
+
+        timeout_seconds: per-task timeout override; 0 uses config default.
+        """
         session = self.store.get_or_create_session(
             user_id, self.config.agent.default_working_dir
         )
-        task = self.store.create_task(user_id, session.session_id, message)
-        logger.info("Task %s enqueued for user %s", task.id, user_id)
+        task = self.store.create_task(
+            user_id, session.session_id, message, timeout_seconds=timeout_seconds
+        )
+        logger.info("Task %s enqueued for user %s (timeout=%s)",
+                    task.id, user_id, timeout_seconds or "default")
         # Notify user if task is queued behind a running EXECUTOR task (not cron tasks)
         running = self.store.get_running_task()
         if running and running.user_id != "cron":
@@ -137,6 +143,15 @@ class Executor:
             "what was done and the key result in one sentence (under 80 chars, same language as the user)."
         )
 
+        hint += (
+            "\nTask history: You have recall_tasks(time_range) and get_task_detail(task_id) MCP tools. "
+            "USE THEM proactively when: (a) the user references prior work "
+            "(\"上次/昨天/之前的…\", \"last time\", \"那个分析\"), "
+            "(b) the current task is a continuation/comparison/follow-up, "
+            "or (c) after a /new session reset and you need prior context. "
+            "Default: recall_tasks(\"last_week\"), then get_task_detail(task_id) on relevant hits."
+        )
+
         return f"[System: {hint}]\n\n{message}"
 
     @staticmethod
@@ -153,6 +168,9 @@ class Executor:
             f"Keep responses concise (under 1500 chars preferred). Use short paragraphs, bullet points, "
             f"and avoid long code blocks. For detailed content, save to a file and send via send_wecom_file. "
             f"Memory: If you learn something of lasting value during this task, update the project MEMORY.md file. "
+            f"Task history: You have recall_tasks(time_range) and get_task_detail(task_id) MCP tools. "
+            f"USE THEM when the user references prior work (\"上次/昨天/之前\", \"last time\"), "
+            f"when this task is a continuation/comparison, or after /new resets context. "
             f"Task summary: End your response with a line starting with 📋 that summarizes "
             f"what was done and the key result in one sentence (under 80 chars, same language as the user). "
             f"Dashboard: If this task represents a new category of work, edit .dashboard-workstations.json to add a new workstation."
@@ -208,13 +226,19 @@ class Executor:
                 except Exception:
                     logger.debug("Failed to check profile model overrides, using default")
 
+            # Per-task timeout override (/long); watchdog gets +600s headroom so
+            # the executor timeout always fires first (watchdog is the safety net)
+            effective_timeout = task.timeout_seconds or self.config.agent.task_timeout_seconds
+            watchdog_timeout = effective_timeout + 600 if task.timeout_seconds else None
+
             result: RunResult = await asyncio.wait_for(
                 self.runner.run(
                     augmented_message, session_id, is_resume, session.working_dir,
                     on_output=stream.on_output, on_thinking=_on_thinking,
                     task_id=task_id, model_override=model_override,
+                    watchdog_timeout=watchdog_timeout,
                 ),
-                timeout=self.config.agent.task_timeout_seconds,
+                timeout=effective_timeout,
             )
 
             # Flush any remaining buffered output
@@ -261,7 +285,7 @@ class Executor:
 
         except asyncio.TimeoutError:
             logger.warning("Task %s timed out after %ds", task_id[:12],
-                          self.config.agent.task_timeout_seconds)
+                          task.timeout_seconds or self.config.agent.task_timeout_seconds)
             await self.runner.cancel()
             self.store.update_task_status(
                 task_id, TaskStatus.FAILED, error="Task timed out"

@@ -10,10 +10,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Max runtime for /long tasks (6 hours)
+LONG_TASK_TIMEOUT = 21600
+
 HELP_TEXT = """Available commands:
 /status [id] - Show task status (latest or by ID)
 /cancel [id] - Cancel running task (or by ID)
 /list - List recent tasks
+/long <task> - Run a long task (up to 6 hours)
 /new - Start a new session (reset context)
 /cd <path> - Change working directory
 /output <id> - Get full output of a task
@@ -44,6 +48,7 @@ class CommandRouter:
             "/status": self._handle_status,
             "/cancel": self._handle_cancel,
             "/list": self._handle_list,
+            "/long": self._handle_long,
             "/new": self._handle_new,
             "/cd": self._handle_cd,
             "/output": self._handle_output,
@@ -144,6 +149,17 @@ class CommandRouter:
         self._executor.runner.model_info.clear()
         agent_id = getattr(self._executor.store, "_agent_id", "")
         self._executor.store.set_kv(f"model_info:{agent_id}", "")
+
+    async def _handle_long(self, user_id: str, arg: str | None) -> None:
+        if not arg:
+            await self._executor.notifier.send_reply(
+                user_id, "Usage: /long <task> — run a task with up to 6 hours runtime"
+            )
+            return
+        await self._executor.enqueue_task(user_id, arg, timeout_seconds=LONG_TASK_TIMEOUT)
+        await self._executor.notifier.send_reply(
+            user_id, "⏳ 长任务已入队（最长可运行6小时）。运行期间新消息会排队等待。"
+        )
 
     async def _handle_new(self, user_id: str, arg: str | None) -> None:
         session = self._executor.store.reset_session(

@@ -288,3 +288,18 @@ def test_recall_tasks_respects_limit(store):
         limit=3,
     )
     assert len(results) == 3
+
+
+# --- per-task timeout ---
+
+
+def test_create_task_with_timeout(store):
+    task = store.create_task("user1", "s1", "long job", timeout_seconds=21600)
+    fetched = store.get_task(task.id)
+    assert fetched.timeout_seconds == 21600
+
+
+def test_create_task_default_timeout_zero(store):
+    task = store.create_task("user1", "s1", "normal job")
+    fetched = store.get_task(task.id)
+    assert fetched.timeout_seconds == 0
